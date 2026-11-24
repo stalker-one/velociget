@@ -2,6 +2,7 @@
   "name": "idm-by-encodal",
   "productName": "IDM By Encodal",
   "version": "0.1.0",
+  "author": "Encodal",
   "description": "Multi-connection download manager with browser integration (Windows)",
   "main": "electron/main.js",
   "private": true,
@@ -11,7 +12,7 @@
     "test": "node --test test/*.test.js",
     "icons": "node scripts/make-icons.js",
     "pack:ext": "node scripts/pack-extension.js",
-    "dist": "npm run icons && electron-builder --win nsis --x64"
+    "dist": "npm run icons && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "basic-ftp": "^6.2.6",
