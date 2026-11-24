@@ -17,7 +17,7 @@ jobs:
       - run: node scripts/pack-extension.js
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.1.0' }}
           files: |
             dist/*.exe
             dist/idm-by-encodal-extension.zip
