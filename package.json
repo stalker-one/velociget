@@ -53,7 +53,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "IDM-By-Encodal-Setup.${ext}"
     }
   }
 }

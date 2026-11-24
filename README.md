@@ -124,3 +124,6 @@ Quality sizes shown are the server's own numbers (yt-dlp sizes, confirmed with a
 
 ## Link details
 Paste any link into the bar at the top of the window (or New → Link details). The window shows the thumbnail and a real frame cut from the video, the title, the published caption/description text, uploader, date, counts, hashtags, caption (subtitle) tracks you can download, and every quality and audio format with its size and a Download button. It uses yt-dlp, so it works for the sites yt-dlp supports (YouTube, TikTok, Instagram, Facebook, X, Snapchat and many more). Private or login-only posts need the browser's cookies (the extension supplies them); a site can still refuse a link.
+
+## Android app
+`android/` holds a small native app: paste a link (or share one from the browser) and it downloads the file on up to 32 connections into Downloads/IDM By Encodal, with a progress notification. It handles direct file links only; sites that need the video engine (YouTube, TikTok…) are desktop-only for now. The release workflow builds the APK (`gradle -p android assembleDebug`).
