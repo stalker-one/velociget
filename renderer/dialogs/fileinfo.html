@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" /><link rel="stylesheet" href="../style.css" /><script src="../theme.js"></script><title>Download File Info</title></head>
+<body class="win"><div class="pad">
+  <div class="head"><div class="bigicon cat-General" id="icon">•</div>
+    <div class="t"><b id="name">Looking up the file…</b><span id="meta" class="hint"></span></div></div>
+  <label>URL<input id="url" type="text" readonly /></label>
+  <div class="row2">
+    <label>Category <select id="cat"></select></label>
+    <label>Description <input id="desc" type="text" placeholder="optional" /></label>
+  </div>
+  <label>Save As <span class="row"><input id="saveas" type="text" spellcheck="false" /><button id="browse" type="button">…</button></span></label>
+  <div class="actions">
+    <button id="later" type="button">Download Later</button>
+    <span class="grow"></span>
+    <button id="start" type="button" class="primary">Start Download</button>
+    <button id="cancel" type="button">Cancel</button>
+  </div>
+</div><script src="fileinfo.js"></script></body></html>

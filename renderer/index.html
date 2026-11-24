@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
+  <title>IDM By Encodal</title>
+  <link rel="stylesheet" href="style.css" /><script src="theme.js"></script>
+</head>
+<body>
+  <header class="brand">
+    <svg viewBox="0 0 64 64" width="26" height="26"><defs><linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1e40af"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bg1)"/><path d="M32 14v24M21 29l11 11 11-11M19 48h26" stroke="#fff" stroke-width="5.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="bname">IDM <b>By Encodal</b></span><span class="btag">Fast. Segmented. Reliable.</span>
+    <span class="grow"></span>
+    <form id="quick" class="quick" autocomplete="off"><input id="quickUrl" type="text" spellcheck="false" placeholder="Paste a video link (YouTube, TikTok, Instagram, Facebook, X, Snapchat…) to see its details" /><button type="submit">Details</button></form>
+    <span class="bver" id="bSpeed"></span>
+  </header>
+  <div class="toolbar" id="toolbar"></div>
+
+  <div class="main">
+    <nav class="tree" id="tree"></nav>
+    <section class="listwrap" id="listwrap">
+      <table id="table">
+        <colgroup id="cols"></colgroup>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty"><div class="emptybox"><svg viewBox="0 0 64 64" width="56" height="56"><rect x="4" y="4" width="56" height="56" rx="14" fill="#2563eb"/><path d="M32 16v22M22 30l10 10 10-10M20 46h24" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><h3>No downloads here yet</h3><p>Click <b>Add URL</b>, copy a link, or press play on a video while the browser extension is on.</p></div></div>
+    </section>
+  </div>
+
+  <div class="statusbar">
+    <span id="sbText">Ready</span>
+    <span class="grow"></span>
+    <span id="sbActive">0 active</span>
+    <span id="sbSpeed">0 KB/sec</span>
+    <label>Speed limit
+      <select id="sbLimit">
+        <option value="0">Unlimited</option>
+        <option value="2048">2 MB/s</option>
+        <option value="1024">1 MB/s</option>
+        <option value="500">500 KB/s</option>
+        <option value="100">100 KB/s</option>
+      </select>
+    </label>
+  </div>
+
+  <ul id="ctx" class="ctx" hidden></ul>
+
+  <ul id="newMenu" class="ctx" hidden>
+    <li data-new="http"><b>HTTP / web download</b><br><small>A file address</small></li>
+    <li data-new="info"><b>Link details</b><br><small>Frame, title, caption, subtitles and all qualities of any link</small></li>
+    <li data-new="video"><b>Video download</b><br><small>A page with a video (YouTube and many more)</small></li>
+    <li data-new="stream"><b>HLS / DASH stream</b><br><small>A playlist (.m3u8) or manifest (.mpd)</small></li>
+    <li data-new="batch"><b>Batch download</b><br><small>Many links, one per line</small></li>
+    <li data-new="pattern"><b>Batch from a pattern</b><br><small>img[001-100].jpg</small></li>
+  </ul>
+
+
+  <!-- Link details: paste any link, see everything about it -->
+  <dialog id="dlgInfo" class="wide">
+    <form method="dialog" id="formInfo">
+      <h2>Link details</h2>
+      <div class="row"><input id="iUrl" type="text" spellcheck="false" placeholder="https://…" style="flex:1" /><button type="button" id="iGo" class="primary">Analyze</button></div>
+      <p id="iStatus" class="hint"></p>
+      <div id="iBody" hidden>
+        <div class="igrid">
+          <div class="ileft">
+            <div class="ipre"><img id="iFrame" alt="Video frame" /><span class="itag" id="iFrameTag">Thumbnail</span></div>
+            <div class="irow"><img id="iThumb" alt="Thumbnail" /><div><button type="button" id="iSaveThumb">Save thumbnail</button><button type="button" id="iSaveFrame" hidden>Save frame</button></div></div>
+          </div>
+          <div class="iright">
+            <div class="ititle"><h3 id="iTitle"></h3><button type="button" id="iCopyTitle" title="Copy title">Copy</button></div>
+            <p id="iMeta" class="hint"></p>
+            <div id="iTags" class="chips"></div>
+            <div class="ilabel">Description / caption <button type="button" id="iCopyDesc">Copy</button></div>
+            <pre id="iDesc" class="idesc"></pre>
+            <div class="ilabel">Captions (subtitles)</div>
+            <div id="iCaps" class="chips"></div>
+          </div>
+        </div>
+        <div class="ilabel">Qualities and formats <span id="iCount" class="hint"></span></div>
+        <div id="iList" class="qlist"></div>
+      </div>
+      <div class="actions"><span class="grow"></span><button type="button" class="cancel">Close</button></div>
+    </form>
+  </dialog>
+
+  <!-- Video / stream download (quality list) -->
+  <dialog id="dlgVideo">
+    <form method="dialog" id="formVideo">
+      <h2 id="vTitle">Video download</h2>
+      <div class="seg" id="vType" hidden>
+        <label class="check"><input type="radio" name="vt" value="hls" checked /> HLS (.m3u8)</label>
+        <label class="check"><input type="radio" name="vt" value="dash" /> DASH (.mpd)</label>
+      </div>
+      <label id="vLabel">Page address
+        <input id="vUrl" type="text" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…" />
+      </label>
+      <div class="row"><button type="button" id="vLoad" class="primary">Get qualities</button><span id="vStatus" class="hint"></span></div>
+      <div id="vResult" hidden>
+        <p id="vInfo" class="hint"></p>
+        <div id="vList" class="qlist" role="listbox"></div>
+        <select id="vQuality" hidden></select>
+        <div class="vform">
+          <label>File <input id="vFile" type="text" spellcheck="false" /></label>
+          <label>Segments <select id="vSeg"><option>4</option><option>8</option><option selected>16</option><option>24</option><option>32</option></select></label>
+        </div>
+      </div>
+      <div class="actions">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="vGo" value="go" disabled>Download</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add URL -->
+  <dialog id="dlgAdd">
+    <form method="dialog" id="formAdd">
+      <h2>Enter new address to download</h2>
+      <label>Address <small>(one per line)</small>
+        <textarea id="addUrls" rows="4" placeholder="https://example.com/file.zip   or   https://www.youtube.com/watch?v=…" spellcheck="false"></textarea>
+      </label>
+      <label>Referer <small>(optional)</small><input id="addReferer" type="text" /></label>
+      <details class="adv">
+        <summary>Advanced: login, cookies, custom headers</summary>
+        <div class="row2">
+          <label>User name <input id="addUser" type="text" autocomplete="off" /></label>
+          <label>Password <input id="addPass" type="password" autocomplete="off" /></label>
+        </div>
+        <label>Cookie <small>(optional)</small><input id="addCookie" type="text" spellcheck="false" /></label>
+        <label>Custom headers <small>(one per line, <code>Name: value</code> — e.g. for a copied m3u8/mpd playlist)</small>
+          <textarea id="addHeaders" rows="3" spellcheck="false" placeholder="Origin: https://example.com"></textarea>
+        </label>
+      </details>
+      <div class="actions">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="addOk" value="ok">OK</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Batch -->
+  <dialog id="dlgBatch">
+    <form method="dialog">
+      <h2>Batch download from a pattern</h2>
+      <label>URL pattern
+        <input id="batchPattern" type="text" placeholder="https://site.com/img[001-100].jpg" spellcheck="false" />
+      </label>
+      <p class="hint">Use <code>[001-100]</code> for numbers, <code>[a-z]</code> for letters, <code>{jpg,png}</code> for alternatives.</p>
+      <pre id="batchPreview" class="preview"></pre>
+      <div class="actions">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="batchGo" value="go" disabled>OK</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Site grabber -->
+  <dialog id="dlgGrab" class="wide">
+    <form method="dialog">
+      <h2>Site grabber</h2>
+      <label>Start page <input id="grabUrl" type="text" placeholder="https://example.com/downloads/" spellcheck="false" /></label>
+      <div class="row2">
+        <label>Link depth <select id="grabDepth"><option>0</option><option selected>1</option><option>2</option><option>3</option></select></label>
+        <label class="check"><input id="grabSame" type="checkbox" checked /> Stay on this site</label>
+      </div>
+      <label>File types <small>(comma separated, empty = every file)</small>
+        <input id="grabExts" type="text" placeholder="pdf, zip, jpg" />
+      </label>
+      <label>URL must match <small>(regular expression, optional)</small><input id="grabRegex" type="text" /></label>
+      <div class="row"><button type="button" id="grabScan" class="primary">Scan</button><span id="grabStatus" class="hint"></span></div>
+      <div id="grabList" class="list"></div>
+      <div class="actions">
+        <label class="check"><input id="grabAll" type="checkbox" checked /> Select all</label>
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="grabGo" value="go" disabled>Download selected</button>
+        <button type="button" class="cancel">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Scheduler -->
+  <dialog id="dlgSched">
+    <form method="dialog">
+      <h2>Scheduler</h2>
+      <div class="row"><select id="qSelect"></select><button type="button" id="qNew">New queue</button><button type="button" id="qDelete">Delete</button></div>
+      <label>Name <input id="qName" type="text" /></label>
+      <label class="check"><input id="qEnabled" type="checkbox" /> Start and stop this queue on a schedule</label>
+      <div class="row2">
+        <label>Start download at <input id="qStart" type="time" /></label>
+        <label>Stop download at <input id="qStop" type="time" /></label>
+      </div>
+      <div class="days" id="qDays"></div>
+      <label>When the queue finishes
+        <select id="qPost">
+          <option value="none">Do nothing</option>
+          <option value="exit">Exit IDM By Encodal</option>
+          <option value="sleep">Sleep</option>
+          <option value="hibernate">Hibernate</option>
+          <option value="shutdown">Turn off the computer</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button type="button" id="qStartNow">Start now</button>
+        <button type="button" id="qStopNow">Stop</button>
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="qSave" value="save">OK</button>
+        <button type="button" class="cancel">Close</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Excluded addresses -->
+  <dialog id="dlgAddr">
+    <form method="dialog">
+      <h2>Addresses that are not taken over</h2>
+      <label>One address per line <small>(start of a URL; <code>*</code> is a wildcard)</small>
+        <textarea id="addrList" rows="8" spellcheck="false" placeholder="https://example.com/private/*"></textarea>
+      </label>
+      <div class="actions">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="addrOk" value="ok">OK</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Options -->
+  <dialog id="dlgOptions" class="wide">
+    <form method="dialog">
+      <h2>Options</h2>
+      <div class="tabs" id="optTabs">
+        <button type="button" data-tab="general" class="active">General</button>
+        <button type="button" data-tab="connection">Connection</button>
+        <button type="button" data-tab="browser">Browser integration</button>
+        <button type="button" data-tab="types">File types</button>
+        <button type="button" data-tab="site">Site videos</button>
+        <button type="button" data-tab="dialogs">Dialogs</button>
+      </div>
+
+      <div class="tabpane" data-tab="general">
+        <label>Default download folder
+          <span class="row"><input data-key="downloadDir" type="text" /><button type="button" id="optBrowse">Browse…</button></span>
+        </label>
+        <label class="check"><input data-key="categorize" type="checkbox" /> Sort files into category sub-folders (Video, Music, Documents…)</label>
+        <label>Theme
+          <select data-key="theme"><option value="system">Same as Windows</option><option value="light">Light</option><option value="dark">Dark</option></select>
+        </label>
+        <label class="check"><input data-key="keepAwake" type="checkbox" /> Keep the computer awake while downloading</label>
+        <label class="check"><input data-key="clipboardWatch" type="checkbox" /> Watch the clipboard for download links</label>
+        <label class="check"><input data-key="notifyOnComplete" type="checkbox" /> Show a notification when a download completes (when the complete dialog is off)</label>
+        <label class="check"><input data-key="startWithWindows" type="checkbox" /> Start with Windows (minimized to tray)</label>
+        <label class="check"><input data-key="preserveTime" type="checkbox" /> Keep the server's "last modified" time on downloaded files</label>
+        <label>Run after each download <small>(e.g. antivirus; <code>%FILE%</code> is replaced by the file path)</small>
+          <input data-key="virusScanCommand" type="text" placeholder='"C:\Path\to\scanner.exe" "%FILE%"' />
+        </label>
+      </div>
+
+      <div class="tabpane" data-tab="connection" hidden>
+        <div class="row2">
+          <label>Max connections per download <input data-key="maxConnections" type="number" min="1" max="32" /></label>
+          <label>Simultaneous downloads <input data-key="maxConcurrent" type="number" min="1" max="16" /></label>
+        </div>
+        <label>Speed limit <small>(KB/s, 0 = unlimited)</small><input id="optSpeed" type="number" min="0" /></label>
+        <label>User agent <small>(empty = default; downloads from the extension use the browser's own)</small><input data-key="userAgent" type="text" /></label>
+        <fieldset>
+          <legend>HTTP / HTTPS proxy</legend>
+          <div class="row2">
+            <label>Host <input id="pxHost" type="text" /></label>
+            <label>Port <input id="pxPort" type="number" min="1" max="65535" /></label>
+          </div>
+          <div class="row2">
+            <label>User <input id="pxUser" type="text" /></label>
+            <label>Password <input id="pxPass" type="password" /></label>
+          </div>
+        </fieldset>
+      </div>
+
+      <div class="tabpane" data-tab="browser" hidden>
+        <ol class="steps">
+          <li>Install the extension: <button type="button" id="optOpenExt">Open extension folder</button>
+            then in Chrome/Edge open <code>chrome://extensions</code> or <code>edge://extensions</code>, turn on <b>Developer mode</b> and choose <b>Load unpacked</b>. In Firefox use <code>about:debugging</code> → <b>Load Temporary Add-on</b> and pick <code>manifest.json</code>.</li>
+          <li>Open the extension's options and paste this pairing code:
+            <span class="row"><input id="optPair" type="text" readonly /><button type="button" id="optCopyPair">Copy</button></span></li>
+        </ol>
+        <label class="check"><input data-key="captureEnabled" type="checkbox" /> Use the browser extension to take over downloads</label>
+        <label class="check"><input data-key="showVideoOverlay" type="checkbox" /> Show the “Download this video” bar over videos</label>
+        <label>Only take over files larger than <small>(KB)</small><input id="optMinSize" type="number" min="0" /></label>
+        <label>Local API port <input data-key="apiPort" type="number" min="1024" max="65535" /> <small>restart required</small></label>
+      </div>
+
+      <div class="tabpane" data-tab="types" hidden>
+        <h3 class="pane-title">Downloaded file types</h3>
+        <label>Automatically start downloading the following file types:
+          <textarea data-key="captureExtensions" data-list="1" data-split="ext" data-upper="1" rows="6" spellcheck="false"></textarea>
+        </label>
+        <div class="row"><span class="grow"></span><button type="button" id="typesDefault">Default</button></div>
+        <label>Don't start downloading automatically from the following sites:
+          <textarea data-key="excludedSites" data-list="1" data-split="ext" data-keepcase="1" rows="4" spellcheck="false"></textarea>
+        </label>
+        <div class="row"><small class="grow">(separate names by spaces)</small><button type="button" id="sitesDefault">Default</button></div>
+        <label>Don't start downloading automatically from the following addresses:</label>
+        <div class="row"><button type="button" id="addrEdit">Edit list …</button><small id="addrCount" class="grow"></small></div>
+      </div>
+
+      <div class="tabpane" data-tab="site" hidden>
+        <p class="hint">YouTube, Vimeo and many other sites stream video in pieces, so there is no single file for the browser to hand over. IDM By Encodal uses the open-source <b>yt-dlp</b> engine for these sites, and <b>ffmpeg</b> to join separate video and audio streams (needed for HD).</p>
+        <fieldset>
+          <legend>yt-dlp (site video engine)</legend>
+          <div class="row"><span id="toolYtdlp" class="grow">checking…</span><button type="button" id="installYtdlp">Install / update</button></div>
+          <label class="check"><input data-key="autoUpdateYtdlp" type="checkbox" /> Update automatically every few days (sites change often)</label>
+          <label>Path <small>(optional, empty = automatic)</small><input data-key="ytdlpPath" type="text" /></label>
+        </fieldset>
+        <label class="check"><input data-key="ytDirect" type="checkbox" /> Download site videos with many connections (faster; falls back to yt-dlp automatically)</label>
+        <fieldset>
+          <legend>Deno (needed for YouTube)</legend>
+          <div class="row"><span id="toolDeno" class="grow">checking…</span><button type="button" id="installDeno">Install</button></div>
+          <label>Path <small>(optional, empty = automatic)</small><input data-key="denoPath" type="text" /></label>
+        </fieldset>
+        <fieldset>
+          <legend>ffmpeg</legend>
+          <div class="row"><span id="toolFfmpeg" class="grow">checking…</span><button type="button" id="installFfmpeg">Install</button></div>
+          <label>Path <small>(optional, empty = automatic)</small><input data-key="ffmpegPath" type="text" /></label>
+        </fieldset>
+        <div id="toolMsg" class="hint"></div>
+      </div>
+
+      <div class="tabpane" data-tab="dialogs" hidden>
+        <label class="check"><input data-key="showFileInfoDialog" type="checkbox" /> Show “Download File Info” before a download from the browser starts</label>
+        <label class="check"><input data-key="showProgressDialog" type="checkbox" /> Show a progress window for each download</label>
+        <label class="check"><input data-key="showCompleteDialog" type="checkbox" /> Show “Download complete” when a download finishes</label>
+      </div>
+
+      <div class="actions">
+        <span class="grow"></span>
+        <button type="submit" class="primary" id="optSave" value="save">OK</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

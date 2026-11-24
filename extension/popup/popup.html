@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header>
+    <img src="../icons/icon32.png" alt="" width="22" height="22">
+    <b>IDM By Encodal</b><span id="conn" class="pill">…</span>
+  </header>
+  <div id="unpaired" hidden>Not paired with the app yet. <a href="#" id="openOpts">Open options</a></div>
+  <div class="bar"><span>Media on this page</span><span class="grow"></span><label class="all"><input type="checkbox" id="selAll"> Select all</label></div>
+  <div id="list" class="list"></div>
+  <div class="foot">
+    <button id="go" class="primary" disabled>Download selected</button>
+    <div class="row2">
+      <button id="more" title="Every large or unknown-type response this page received, like XDM's More formats">More formats</button>
+      <button id="assets" title="All images, links and files of this page in a separate tab">Images &amp; links</button>
+      <button id="focus">Open app</button>
+      <label class="cap"><input type="checkbox" id="cap"> Auto-capture</label>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body></html>

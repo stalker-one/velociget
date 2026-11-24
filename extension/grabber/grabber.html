@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page files — IDM By Encodal</title><link rel="stylesheet" href="grabber.css"></head>
+<body>
+  <div class="top">
+    <header>
+      <img src="../icons/icon32.png" width="28" height="28" alt="">
+      <div class="t"><b>IDM By Encodal</b><small id="page">Loading…</small></div>
+      <span class="grow"></span>
+      <button id="scan" title="Scroll the whole page so lazy-loaded files are fetched, then list them again">Scan whole page</button>
+      <button id="reload">Refresh</button>
+    </header>
+    <nav id="tabs"></nav>
+    <div class="tools">
+      <input id="q" type="search" placeholder="Filter by name or address…">
+      <label id="sizeBox">Min. size <select id="minSize"><option value="0" selected>Any</option><option value="100">100 px</option><option value="200">200 px</option><option value="400">400 px</option><option value="800">800 px</option></select></label>
+      <label id="sortBox">Sort <select id="sort"><option value="page">Page order</option><option value="size">Largest first</option></select></label>
+      <label id="typeBox">Format <select id="ftype"><option value="">All</option></select></label>
+      <span class="grow"></span>
+      <span id="count" class="count"></span>
+      <label class="all"><input type="checkbox" id="all"> Select all</label>
+      <button id="go" class="primary" disabled>Download selected</button>
+    </div>
+  </div>
+  <main id="grid"></main>
+  <div id="msg" class="msg" hidden></div>
+  <script src="grabber.js"></script>
+</body></html>

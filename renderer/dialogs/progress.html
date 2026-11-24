@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" /><link rel="stylesheet" href="../style.css" /><script src="../theme.js"></script><title>Download</title></head>
+<body class="win"><div class="pad" id="root">
+  <div class="tabs" id="tabs"><button class="active" data-t="status">Download status</button><button data-t="limit">Speed Limiter</button><button data-t="after">Options on completion</button></div>
+  <div class="tabpane" data-t="status">
+    <div class="urlline" id="url"></div>
+    <div class="kv">
+      <span>Status</span><span id="st"></span>
+      <span>File size</span><span id="size"></span>
+      <span>Downloaded</span><span id="dl"></span>
+      <span>Transfer rate</span><span id="rate"></span>
+      <span>Time left</span><span id="eta"></span>
+      <span>Resume capability</span><span id="resume"></span>
+    </div>
+    <div class="pbar"><i id="fill" style="width:0"></i><b id="pct">0%</b></div>
+    <div id="details">
+      <div class="cap">Start positions and download progress by connections</div>
+      <canvas id="segs" class="segs" width="900" height="28"></canvas>
+      <div class="cap" id="conn"></div>
+      <div class="ctable" id="ctable"><div class="crow chead"><span>#</span><span>Status</span><span>Downloaded</span><span>Speed</span></div><div id="crows"></div></div>
+    </div>
+    <div id="msg" class="bad"></div>
+  </div>
+  <div class="tabpane" data-t="limit" hidden>
+    <label class="check"><input id="useLimit" type="checkbox" /> Use speed limiter for this download</label>
+    <label>Maximum download speed (KB/sec) <input id="limitKb" type="number" min="1" value="200" /></label>
+    <p class="hint">The overall limit set in the status bar still applies.</p>
+    <button id="applyLimit" type="button">Apply</button>
+  </div>
+  <div class="tabpane" data-t="after" hidden>
+    <label class="check"><input id="optComplete" type="checkbox" /> Show the “Download complete” window when this download finishes</label>
+    <p style="margin:10px 0 4px">When this download completes:</p>
+    <label class="check"><input type="radio" name="after" value="none" /> Do nothing</label>
+    <label class="check"><input type="radio" name="after" value="exit" /> Exit IDM By Encodal</label>
+    <label class="check"><input type="radio" name="after" value="sleep" /> Put the computer to sleep</label>
+    <label class="check"><input type="radio" name="after" value="hibernate" /> Hibernate</label>
+    <label class="check"><input type="radio" name="after" value="shutdown" /> Turn off the computer</label>
+  </div>
+  <div class="actions">
+    <button id="toggle" type="button">&lt;&lt; Hide details</button>
+    <span class="grow"></span>
+    <button id="pause" type="button">Pause</button>
+    <button id="cancel" type="button">Cancel</button>
+  </div>
+</div><script src="progress.js"></script></body></html>

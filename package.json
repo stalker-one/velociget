@@ -1,0 +1,58 @@
+{
+  "name": "idm-by-encodal",
+  "productName": "IDM By Encodal",
+  "version": "0.1.0",
+  "description": "Multi-connection download manager with browser integration (Windows)",
+  "main": "electron/main.js",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "icons": "node scripts/make-icons.js",
+    "pack:ext": "node scripts/pack-extension.js",
+    "dist": "npm run icons && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.6",
+    "undici": "^8.12.4"
+  },
+  "devDependencies": {
+    "electron": "^45.3.0",
+    "electron-builder": "^24.13.3",
+    "ftp-srv": "^4.6.3"
+  },
+  "build": {
+    "appId": "io.encodal.idm",
+    "productName": "IDM By Encodal",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "renderer/**",
+      "src/**",
+      "build/icon.png",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "extension",
+        "to": "extension"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDM By Encodal — Fast segmented download manager</title>
+<meta name="description" content="Windows download manager with up to 32 connections per file, a browser extension that lists every video quality on hover, and site-video support.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+:root{--bg:#f4f7fb;--surface:#fff;--ink:#0d1b2a;--muted:#55677d;--line:#dbe3ee;--accent:#2563eb;--accent2:#1d4ed8;--soft:#e8f0fe;--green:#18a874;--navy:#0b1f4d;
+--display:'Space Grotesk',system-ui,sans-serif;--body:'Inter',system-ui,sans-serif}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0a121c;--surface:#111d2c;--ink:#e8eff6;--muted:#9bb0c4;--line:#22344a;--accent:#5b9dff;--accent2:#7fb2ff;--soft:#16294a;--green:#38d39a;--navy:#06122e;color-scheme:dark}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--body)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-family:var(--display);line-height:1.12;margin:0}
+h1{font-size:clamp(2.2rem,5.4vw,3.7rem);letter-spacing:-.02em}
+h2{font-size:clamp(1.6rem,3.2vw,2.3rem);letter-spacing:-.01em}
+p{margin:0}a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav{display:flex;align-items:center;gap:22px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;font:700 1.15rem var(--display);margin-right:auto;color:var(--ink);text-decoration:none}
+.logo{width:32px;height:32px}
+nav a.l{color:var(--muted);text-decoration:none;font-size:.95rem;font-weight:500}nav a.l:hover{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:10px;border:1px solid var(--accent);transition:.15s}
+.btn:hover{background:var(--accent2)}.btn.alt{background:transparent;color:var(--ink);border-color:var(--line)}.btn.alt:hover{border-color:var(--accent)}
+.hero{background:linear-gradient(135deg,#0b1f4d 0%,#1d4ed8 70%,#3b82f6 100%);color:#fff;overflow:hidden}
+.hero .wrap{display:grid;grid-template-columns:1fr 1.15fr;gap:48px;align-items:center;padding-block:64px 72px}
+.hero p.lead{font-size:1.15rem;opacity:.9;margin-block:20px 28px;max-width:50ch}
+.hero .btn{background:#fff;color:#0b1f4d;border-color:#fff}.hero .btn.alt{background:transparent;color:#fff;border-color:rgba(255,255,255,.5)}
+.hero .fine{font-size:.85rem;opacity:.7;margin-top:18px}
+.tag{display:inline-block;font-size:.8rem;font-weight:600;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.16);margin-bottom:18px}
+.shot{border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 30px 60px -25px rgba(0,0,0,.6);display:block;width:100%;height:auto;background:#fff}
+.stats{background:var(--surface);border-bottom:1px solid var(--line)}
+.stats .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding-block:22px;text-align:center}
+.stats b{display:block;font:700 1.6rem var(--display);color:var(--accent)}.stats span{font-size:.88rem;color:var(--muted)}
+section{padding-block:72px}
+.sec-h{max-width:62ch;margin-bottom:36px}.sec-h p{color:var(--muted);margin-top:10px}
+.feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;min-width:0}
+.card .ic{width:40px;height:40px;border-radius:10px;background:var(--soft);color:var(--accent);display:grid;place-items:center;font-size:1.2rem;margin-bottom:14px}
+.card h3{font-size:1.05rem;margin-bottom:6px}.card p{color:var(--muted);font-size:.94rem}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;margin-block:56px}
+.split.rev>:first-child{order:2}
+.split .shot{border-color:var(--line);box-shadow:0 20px 44px -26px rgba(13,27,42,.5)}
+.split h3{font-size:1.6rem;margin-bottom:12px}.split p{color:var(--muted)}
+.split ul{margin:14px 0 0;padding-left:20px;color:var(--muted)}.split li{margin:6px 0}
+.formats{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.fmt{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+.fmt b{display:inline-block;font:700 .8rem var(--display);padding:3px 10px;border-radius:6px;background:var(--accent);color:#fff;margin-right:6px}
+.fmt p{color:var(--muted);font-size:.92rem;margin-top:10px}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:.93rem}
+th,td{text-align:left;padding:13px 18px;border-bottom:1px solid var(--line)}
+th{font:700 .78rem var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}tr:last-child td{border:0}
+.ok{color:var(--green);font-weight:600}.no{color:#c27a00;font-weight:600}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;counter-reset:s}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;counter-increment:s}
+.step h3:before{content:counter(s);display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-size:.9rem;margin-right:10px}
+pre{margin:12px 0 0;overflow-x:auto;font:.82rem/1.55 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px}
+.step p{color:var(--muted);font-size:.92rem;margin-top:10px}
+.dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.dl .card .btn{margin-top:16px}
+details{border-bottom:1px solid var(--line);padding-block:15px}summary{cursor:pointer;font-weight:600}details p{color:var(--muted);margin-top:8px;max-width:72ch}
+footer{background:var(--navy);color:#b8c6dc;padding-block:36px;font-size:.9rem}footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
+@media(max-width:860px){.hero .wrap,.split{grid-template-columns:1fr}.split.rev>:first-child{order:0}.stats .wrap{grid-template-columns:repeat(2,1fr)}nav a.l{display:none}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><nav>
+  <a class="brand" href="#"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1e40af"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g)"/><path d="M32 14v24M21 29l11 11 11-11M19 48h26" stroke="#fff" stroke-width="5.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>IDM By Encodal</a>
+  <a class="l" href="#features">Features</a><a class="l" href="#formats">Formats</a><a class="l" href="#install">Install</a><a class="l" href="#faq">FAQ</a>
+  <a class="btn" style="padding:8px 18px" href="#download">Download</a>
+</nav></div></header>
+
+<div class="hero"><div class="wrap">
+  <div>
+    <span class="tag">Windows · Chrome · Edge · Firefox</span>
+    <h1>Download faster. See every quality at a glance.</h1>
+    <p class="lead">Each file is split across up to 32 connections. Hover any video and the extension lists that video's own qualities, with real file sizes, ready to download.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn" href="#download">Get IDM By Encodal</a><a class="btn alt" href="#features">See features</a></div>
+    <p class="fine">Download only content you own or have permission to save. DRM-protected streams are not supported.</p>
+  </div>
+  <img class="shot" src="img/app-main.png" alt="IDM By Encodal main window with a category tree, toolbar and download list" width="1020" height="613">
+</div></div>
+
+<div class="stats"><div class="wrap">
+  <div><b>32</b><span>connections per file</span></div><div><b>4K</b><span>video quality, when the site offers it</span></div><div><b>Resume</b><span>after a restart</span></div><div><b>0</b><span>accounts or tracking</span></div>
+</div></div>
+
+<section id="features"><div class="wrap">
+  <div class="sec-h"><h2>Built for speed and clarity</h2><p>Everything runs on your computer. The app and the extension talk over localhost only.</p></div>
+  <div class="feat">
+    <div class="card"><div class="ic">⚡</div><h3>Segmented downloads</h3><p>Ranged requests, dynamic splitting of the largest remaining piece, resume, speed limiter and queues with a scheduler.</p></div>
+    <div class="card"><div class="ic">🎬</div><h3>Hover to see qualities</h3><p>Point at a video, even a thumbnail on YouTube, and that video's own list opens, looked up in advance so it appears at once.</p></div>
+    <div class="card"><div class="ic">📏</div><h3>Real file sizes</h3><p>Sizes come from the server itself, not an estimate, so the size you pick is the size you get.</p></div>
+    <div class="card"><div class="ic">🧩</div><h3>Video + audio, joined on the fly</h3><p>Separate video and audio streams download in parallel and are joined while they arrive, so the finished file appears without a long wait.</p></div>
+    <div class="card"><div class="ic">🖼️</div><h3>Images and links grabber</h3><p>List every image, link and file on a page or a whole site, filter by size or type, and download the selection.</p></div>
+    <div class="card"><div class="ic">📡</div><h3>HLS, DASH and FTP</h3><p>Playlist streams, manifests, FTP and FTPS with resume, cookies, custom headers and logins.</p></div>
+  </div>
+
+  <div class="split">
+    <div><h3>A download window that shows the truth</h3><p>One continuous bar shows what has arrived, with a marker on each live connection. The table below lists every connection with its status and speed.</p>
+      <ul><li>Live connection count that matches the table</li><li>Transfer rate, time left and resume status</li><li>Pause, resume and limit speed per download</li></ul></div>
+    <img class="shot" src="img/app-progress.png" alt="Download progress window with a connection bar and per-connection table" width="560" height="600" loading="lazy">
+  </div>
+
+  <div class="split rev">
+    <div><h3>The video button, on every video</h3><p>A button sits over the video. Click it, or just rest the pointer, and the qualities open: resolution, codec, container and size.</p>
+      <ul><li>H.264, VP9 and AV1 rows kept apart</li><li>Audio-only options with bitrate</li><li>Edit the file name and the number of segments in the app</li></ul></div>
+    <img class="shot" src="img/ext-overlay.png" alt="Download this video button with a list of qualities over a video player" width="480" height="200" loading="lazy">
+  </div>
+
+  <div class="split">
+    <div><h3>Everything on the page, one popup</h3><p>The toolbar popup groups every video on the page into one card with a quality drop-down. Tick what you want and press Download selected.</p>
+      <ul><li>Thumbnails and durations</li><li>Subtitles listed beside the video</li><li>Dark and light themes</li></ul></div>
+    <img class="shot" src="img/ext-popup.png" alt="Extension popup listing media with quality drop-downs" width="440" height="503" loading="lazy">
+  </div>
+</div></section>
+
+<section id="formats" style="background:var(--surface);border-block:1px solid var(--line)"><div class="wrap">
+  <div class="sec-h"><h2>Download formats</h2><p>The list shows each quality with its codec and container, so you pick the exact file you want.</p></div>
+  <div class="formats">
+    <div class="fmt"><b>MP4</b><b>H.264</b><p>Plays everywhere. Best for phones, TVs and editors.</p></div>
+    <div class="fmt"><b>MKV</b><b>VP9 + Opus</b><p>High resolutions, often smaller than H.264 at 1440p and 4K.</p></div>
+    <div class="fmt"><b>MP4</b><b>AV1</b><p>Most efficient codec for modern devices.</p></div>
+    <div class="fmt"><b>M4A</b><b>Opus</b><p>Audio-only, several bitrates to choose from.</p></div>
+    <div class="fmt"><b>HLS</b><b>DASH</b><p>Stream playlists, joined into one file.</p></div>
+    <div class="fmt"><b>Files</b><p>Archives, installers, documents, images, FTP files and anything with a direct address.</p></div>
+  </div>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <div class="sec-h"><h2>Install in three steps</h2></div>
+  <div class="steps">
+    <div class="step"><h3>Build the app</h3><pre>npm install
+npm run dist</pre><p>The installer appears in the dist folder.</p></div>
+    <div class="step"><h3>Load the extension</h3><pre>chrome://extensions
+Developer mode → Load unpacked
+→ select the extension folder</pre><p>Edge uses edge://extensions. Firefox uses about:debugging.</p></div>
+    <div class="step"><h3>Start downloading</h3><pre>Open the app once,
+then hover any video.</pre><p>Click the button over the video, or use the toolbar icon.</p></div>
+  </div>
+  <div class="tw" style="margin-top:32px"><table>
+    <tr><th>Browser</th><th>Extension</th><th>Notes</th></tr>
+    <tr><td>Google Chrome</td><td class="ok">Supported</td><td>Manifest V3.</td></tr>
+    <tr><td>Microsoft Edge</td><td class="ok">Supported</td><td>Same package as Chrome.</td></tr>
+    <tr><td>Firefox</td><td class="ok">Supported</td><td>Version 128 or newer.</td></tr>
+    <tr><td>Other Chromium browsers</td><td class="no">Untested</td><td>Brave, Opera and Vivaldi load the Chrome package.</td></tr>
+  </table></div>
+</div></section>
+
+<section id="download" style="background:var(--surface);border-block:1px solid var(--line)"><div class="wrap">
+  <div class="sec-h"><h2>Download</h2><p>Replace the links with your own release files when you publish.</p></div>
+  <div class="dl">
+    <div class="card"><div class="ic">🖥️</div><h3>Windows app</h3><p>Installer built from the source folder with <code>npm run dist</code>.</p><a class="btn" href="downloads/IDM-By-Encodal-Setup.exe">Download for Windows</a></div>
+    <div class="card"><div class="ic">🧩</div><h3>Browser extension</h3><p>One package for Chrome and Edge, and one for Firefox.</p><a class="btn" href="downloads/idm-by-encodal-extension.zip">Download extension</a></div>
+    <div class="card"><div class="ic">📦</div><h3>Source code</h3><p>The full project, ready to build.</p><a class="btn alt" href="downloads/idm-by-encodal-source.zip">Download source</a></div>
+  </div>
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <div class="sec-h"><h2>Questions</h2></div>
+  <details><summary>Why does it sometimes use fewer connections?</summary><p>The server must allow Range requests. Some sites do not, and some streams arrive as a single file.</p></details>
+  <details><summary>Can it save protected video?</summary><p>Public video that a site serves to your browser can be saved where the site's terms allow it. DRM-protected video is not supported.</p></details>
+  <details><summary>Is this a copy of Internet Download Manager?</summary><p>No. It is an original program with a similar workflow and does not use IDM code.</p></details>
+  <details><summary>Does anything leave my computer?</summary><p>No account and no tracking. The extension sends page addresses to the app on localhost, and the app downloads directly from the source.</p></details>
+</div></section>
+
+<footer><div class="wrap"><div><b style="color:#fff">IDM By Encodal</b><br>Segmented downloader, browser extension and site-video support.</div><div>© Encodal</div></div></footer>
+</body>
+</html>
