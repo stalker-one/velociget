@@ -10,6 +10,7 @@ import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -25,6 +26,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -86,7 +88,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        themeSeen = Prefs.theme(this);
+        dark = themeSeen == 2 || (themeSeen == 0 && (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
+        conns = Prefs.conns(this);
+        Prefs.refresh(this);
         BG = dark ? 0xFF0B1220 : 0xFFF1F5F9;
         CARD = dark ? 0xFF131C2E : 0xFFFFFFFF;
         TXT = dark ? 0xFFE5EAF3 : 0xFF0F172A;
@@ -104,6 +109,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean dark;
+    private int themeSeen;
 
     @Override
     protected void onNewIntent(Intent i) {
@@ -112,13 +118,17 @@ public class MainActivity extends Activity {
         handleIntent(i);
     }
 
-    @Override protected void onResume() { super.onResume(); h.post(tick); }
+    @Override protected void onResume() {
+        super.onResume();
+        if (Prefs.theme(this) != themeSeen) { recreate(); return; }
+        h.post(tick);
+    }
     @Override protected void onPause() { super.onPause(); h.removeCallbacks(tick); Store.save(this, DownloadService.ITEMS); }
 
     @Override
     public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (!focus) return;
+        if (!focus || !Prefs.getBool(this, "clip", true)) return;
         String u = clipboardUrl();
         if (u != null && !u.equals(lastClip) && !u.equals(urlField.getText().toString().trim())) {
             bannerUrl = u;
@@ -164,6 +174,10 @@ public class MainActivity extends Activity {
         titles.addView(t);
         titles.addView(st);
         head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView gear = text("⚙", 22, Color.WHITE, false);
+        gear.setPadding(dp(8), dp(2), dp(14), dp(2));
+        gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        head.addView(gear);
         totalSpeed = text("0 B/s", 15, Color.WHITE, true);
         totalSpeed.setPadding(dp(12), dp(6), dp(12), dp(6));
         totalSpeed.setBackground(rect(0x33FFFFFF, 20, 0));
@@ -204,6 +218,10 @@ public class MainActivity extends Activity {
             urlField.setSelection(u.length());
         }));
         row.addView(pill("Clear", SUB, false, v -> urlField.setText("")));
+        row.addView(pill("Link details", PRIMARY, false, v -> {
+            String u = firstUrl(urlField.getText().toString());
+            if (u == null) toast("Paste a link first"); else openDetails(u, false);
+        }));
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = dp(8);
         lc.addView(row, rp);
@@ -382,7 +400,7 @@ public class MainActivity extends Activity {
             if (it.state == Item.DONE) done++;
         }
 
-        totalSpeed.setText(size((long) total) + "/s");
+        totalSpeed.setText(sizeText((long) total) + "/s");
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         summary.setText(items.isEmpty() ? "Downloads" : "Downloads · " + active + " active · " + done + " done");
         clear.setVisibility(done > 0 ? View.VISIBLE : View.GONE);
@@ -415,7 +433,7 @@ public class MainActivity extends Activity {
         }
 
         int pct = tot > 0 ? (int) Math.min(1000, got * 1000 / tot) : 0;
-        String sizes = tot > 0 ? size(got) + " of " + size(tot) : size(got);
+        String sizes = tot > 0 ? sizeText(got) + " of " + sizeText(tot) : sizeText(got);
         String stat, meta = "";
         int color = SUB, tint = PRIMARY;
         switch (it.state) {
@@ -424,13 +442,13 @@ public class MainActivity extends Activity {
                 if (it.stop) { stat = "Pausing…"; color = WARN; tint = WARN; }
                 else { stat = tot > 0 ? (pct / 10) + "% · " + sizes : "Downloading · " + sizes; color = PRIMARY; }
                 if (it.speed > 1) {
-                    meta = size((long) it.speed) + "/s";
+                    meta = sizeText((long) it.speed) + "/s";
                     if (tot > 0) meta += " · " + eta((long) ((tot - got) / it.speed)) + " left";
                     meta += " · " + it.connections + (it.connections == 1 ? " connection" : " connections");
                 } else meta = "Connecting…";
                 break;
-            case Item.PAUSED: stat = "Paused · " + (tot > 0 ? (pct / 10) + "% · " : "") + sizes; color = WARN; tint = WARN; break;
-            case Item.DONE: stat = "Complete · " + size(Math.max(tot, got)); color = GOOD; tint = GOOD; pct = 1000; meta = "Saved in Downloads/IDM By Encodal"; break;
+            case Item.PAUSED: stat = (it.error.isEmpty() ? "Paused" : it.error) + " · " + (tot > 0 ? (pct / 10) + "% · " : "") + sizes; color = WARN; tint = WARN; break;
+            case Item.DONE: stat = "Complete · " + sizeText(Math.max(tot, got)); color = GOOD; tint = GOOD; pct = 1000; meta = "Saved in Downloads/" + Prefs.folder(this); break;
             case Item.ERROR: stat = it.error.isEmpty() ? "Failed" : it.error; color = BAD; tint = BAD; break;
             default: stat = ""; break;
         }
@@ -453,7 +471,10 @@ public class MainActivity extends Activity {
                 case Item.DOWNLOADING:
                     if (!it.stop) { c.actions.addView(pill("Pause", WARN, false, v -> it.stop = true)); c.actions.addView(pill("Cancel", BAD, false, v -> cancel(it))); }
                     break;
-                case Item.QUEUED: c.actions.addView(pill("Cancel", BAD, false, v -> cancel(it))); break;
+                case Item.QUEUED:
+                    c.actions.addView(pill("Pause", WARN, false, v -> it.stop = true));
+                    c.actions.addView(pill("Cancel", BAD, false, v -> cancel(it)));
+                    break;
                 case Item.PAUSED:
                     c.actions.addView(pill("Resume", PRIMARY, true, v -> resume(it)));
                     c.actions.addView(pill("Cancel", BAD, false, v -> cancel(it)));
@@ -476,18 +497,166 @@ public class MainActivity extends Activity {
     private void start(String raw) {
         String u = firstUrl(raw);
         if (u == null) { toast("Enter a valid http or https link"); return; }
+        openDetails(u, true);
+    }
+
+    private void startDownload(String url, String headers, String name, String mime) {
         Intent s = new Intent(this, DownloadService.class).setAction(DownloadService.ADD)
-                .putExtra("url", u).putExtra("connections", conns);
+                .putExtra("url", url).putExtra("connections", conns);
+        if (headers != null && !headers.isEmpty()) s.putExtra("headers", headers);
+        if (name != null && !name.isEmpty()) s.putExtra("name", name);
         startForegroundService(s);
         urlField.setText("");
-        lastClip = u;
+        lastClip = url;
         banner.setVisibility(View.GONE);
         toast("Download started");
     }
 
     private void resume(Item it) {
+        if (it.state == Item.ERROR && it.error.startsWith("This link is a web page")) {
+            String u = it.url;
+            cancel(it);
+            openDetails(u, false);
+            return;
+        }
         if (it.state == Item.ERROR) it.error = "";
         startForegroundService(new Intent(this, DownloadService.class).setAction(DownloadService.RESUME).putExtra("id", it.id));
+    }
+
+    // ---------------------------------------------------------------- link details
+
+    private void openDetails(final String url, final boolean autoStartDirect) {
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(16), dp(16), dp(12));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        final AlertDialog dlg = new AlertDialog.Builder(this).setView(sv).create();
+        ProgressBar pb = new ProgressBar(this);
+        box.addView(pb, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView lt = text("Reading the link…", 13, SUB, false);
+        lt.setPadding(0, dp(8), 0, dp(8));
+        box.addView(lt);
+        dlg.show();
+        if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(rect(CARD, 16, 0));
+
+        new Thread(() -> {
+            Extractor.Info got = null;
+            String err = null;
+            try {
+                got = Extractor.resolve(url);
+            } catch (Exception e) {
+                err = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            final Extractor.Info info = got;
+            final String error = err;
+            runOnUiThread(() -> {
+                if (isFinishing() || !dlg.isShowing()) return;
+                if (info != null && autoStartDirect && info.direct && info.fmts.size() == 1) {
+                    dlg.dismiss();
+                    Extractor.Fmt f = info.fmts.get(0);
+                    startDownload(f.url, f.headers, null, null);
+                    return;
+                }
+                if (info == null) {
+                    if (autoStartDirect) { dlg.dismiss(); startDownload(url, "", null, null); }
+                    else {
+                        box.removeAllViews();
+                        box.addView(text("Could not read this link", 15, TXT, true));
+                        TextView m = text(error, 12, BAD, false);
+                        m.setPadding(0, dp(6), 0, dp(10));
+                        box.addView(m);
+                        box.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
+                    }
+                    return;
+                }
+                fillDetails(box, dlg, info);
+            });
+        }).start();
+    }
+
+    private void fillDetails(LinearLayout box, final AlertDialog dlg, final Extractor.Info in) {
+        box.removeAllViews();
+        final ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setBackground(rect(FIELD, 12, 0));
+        iv.setClipToOutline(true);
+        if (!in.thumb.isEmpty()) {
+            new Thread(() -> {
+                try {
+                    final Bitmap bm = Extractor.bitmap(in.thumb, in.thumbReferer);
+                    if (bm != null) runOnUiThread(() -> iv.setImageBitmap(bm));
+                } catch (Exception ignored) { }
+            }).start();
+            box.addView(iv, new LinearLayout.LayoutParams(-1, dp(180)));
+        }
+        TextView title = text(in.title.isEmpty() ? in.url : in.title, 16, TXT, true);
+        title.setPadding(0, dp(12), 0, 0);
+        title.setTextIsSelectable(true);
+        box.addView(title);
+
+        StringBuilder sub = new StringBuilder(in.site);
+        if (!in.uploader.isEmpty()) sub.append(" · ").append(in.uploader);
+        if (in.duration > 0) sub.append(" · ").append(clock(in.duration / 1000));
+        TextView st = text(sub.toString(), 12, SUB, false);
+        st.setPadding(0, dp(3), 0, 0);
+        box.addView(st);
+
+        if (!in.desc.isEmpty()) {
+            final TextView ds = text(in.desc, 12, SUB, false);
+            ds.setMaxLines(3);
+            ds.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            ds.setPadding(0, dp(8), 0, 0);
+            ds.setOnClickListener(v -> { boolean open = ds.getMaxLines() > 3; ds.setMaxLines(open ? 3 : 500); });
+            box.addView(ds);
+        }
+
+        if (!in.note.isEmpty()) {
+            TextView n = text(in.note, 12, in.fmts.isEmpty() ? BAD : WARN, false);
+            n.setPadding(0, dp(10), 0, 0);
+            box.addView(n);
+        }
+
+        if (!in.fmts.isEmpty()) {
+            TextView hd = text("Available downloads · " + in.fmts.size(), 13, SUB, true);
+            hd.setPadding(0, dp(14), 0, dp(4));
+            box.addView(hd);
+            for (final Extractor.Fmt f : in.fmts) {
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(12), dp(10), dp(8), dp(10));
+                row.setBackground(rect(FIELD, 12, LINE));
+                LinearLayout tx = new LinearLayout(this);
+                tx.setOrientation(LinearLayout.VERTICAL);
+                tx.addView(text(f.label, 14, TXT, true));
+                tx.addView(text(f.detail, 12, SUB, false));
+                row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
+                row.addView(pill("Download", PRIMARY, true, v -> {
+                    dlg.dismiss();
+                    startDownload(f.url, f.headers, f.name, f.mime);
+                }));
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+                rp.bottomMargin = dp(6);
+                box.addView(row, rp);
+            }
+        }
+
+        LinearLayout foot = new LinearLayout(this);
+        foot.setGravity(Gravity.END);
+        foot.addView(pill("Copy link", SUB, false, v -> {
+            ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("link", in.url));
+            lastClip = in.url;
+            toast("Link copied");
+        }));
+        foot.addView(pill("Close", PRIMARY, false, v -> dlg.dismiss()));
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
+        fp.topMargin = dp(6);
+        box.addView(foot, fp);
+    }
+
+    private static String clock(long s) {
+        return s >= 3600 ? String.format(Locale.US, "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                : String.format(Locale.US, "%d:%02d", s / 60, s % 60);
     }
 
     /** Cancel a running download, or drop a paused / failed one together with its partial file. */
@@ -573,7 +742,7 @@ public class MainActivity extends Activity {
         return s.length() <= n ? s : s.substring(0, n - 1) + "…";
     }
 
-    private static String size(long b) {
+    static String sizeText(long b) {
         if (b < 1024) return b + " B";
         double v = b / 1024.0;
         String[] u = {"KB", "MB", "GB", "TB"};

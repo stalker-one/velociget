@@ -6,7 +6,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.Context;
 import android.content.pm.ServiceInfo;
+import android.net.ConnectivityManager;
+import android.net.Uri;
 import android.os.IBinder;
 
 import java.util.List;
@@ -21,6 +24,7 @@ public class DownloadService extends Service {
     private static final int ID = 7;
     private final AtomicInteger running = new AtomicInteger();
     private final Object lock = new Object();
+    private static final AtomicInteger SLOTS = new AtomicInteger();
     private boolean watching;
 
     static Item find(int id) {
@@ -31,6 +35,7 @@ public class DownloadService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Store.load(this, ITEMS);
+        Prefs.refresh(this);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(CH_PROGRESS, "Download progress", NotificationManager.IMPORTANCE_LOW));
         nm.createNotificationChannel(new NotificationChannel(CH_DONE, "Finished downloads", NotificationManager.IMPORTANCE_DEFAULT));
@@ -38,7 +43,9 @@ public class DownloadService extends Service {
 
         if (intent != null && ADD.equals(intent.getAction()) && intent.getStringExtra("url") != null) {
             Item it = new Item(Store.NEXT_ID.getAndIncrement(), intent.getStringExtra("url"));
-            it.connections = intent.getIntExtra("connections", 8);
+            it.connections = intent.getIntExtra("connections", Prefs.conns(this));
+            if (intent.getStringExtra("headers") != null) it.headers = intent.getStringExtra("headers");
+            if (intent.getStringExtra("name") != null) it.name = intent.getStringExtra("name");
             ITEMS.add(0, it);
             launch(it);
         } else if (intent != null && RESUME.equals(intent.getAction())) {
@@ -57,22 +64,58 @@ public class DownloadService extends Service {
     private void launch(final Item it) {
         synchronized (lock) {
             running.incrementAndGet();
-            it.state = Item.DOWNLOADING;
+            it.stop = false;
+            it.cancel = false;
+            it.state = Item.QUEUED;
             if (!watching) {
                 watching = true;
                 new Thread(this::watch).start();
             }
         }
-        new Thread(() -> {
-            try {
-                Segmented.run(getApplicationContext(), it);
-            } finally {
-                running.decrementAndGet();
-                Store.save(getApplicationContext(), ITEMS);
-                if (it.state == Item.DONE) finished(it, true);
-                else if (it.state == Item.ERROR) finished(it, false);
+        new Thread(() -> worker(it)).start();
+    }
+
+    private boolean metered() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            return cm != null && cm.isActiveNetworkMetered();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Waits for a free slot (the "simultaneous downloads" setting), then downloads. */
+    private void worker(Item it) {
+        final Context app = getApplicationContext();
+        try {
+            if (Prefs.getBool(app, "wifi", false) && metered()) {
+                it.error = "Waiting for Wi-Fi (Wi-Fi only is on)";
+                it.state = Item.PAUSED;
+                return;
             }
-        }).start();
+            while (true) {
+                if (it.cancel) { it.state = Item.CANCELED; return; }
+                if (it.stop) { it.state = Item.PAUSED; return; }
+                synchronized (SLOTS) {
+                    if (SLOTS.get() < Prefs.parallel(app)) { SLOTS.incrementAndGet(); break; }
+                }
+                try { Thread.sleep(400); } catch (InterruptedException ignored) { }
+            }
+            try {
+                Segmented.run(app, it);
+            } finally {
+                SLOTS.decrementAndGet();
+            }
+        } finally {
+            if (it.state == Item.CANCELED) {
+                try { if (!it.uri.isEmpty()) app.getContentResolver().delete(Uri.parse(it.uri), null, null); } catch (Exception ignored) { }
+                ITEMS.remove(it);
+            }
+            running.decrementAndGet();
+            Store.save(app, ITEMS);
+            if (it.state == Item.DONE) finished(it, true);
+            else if (it.state == Item.ERROR) finished(it, false);
+        }
     }
 
     private void watch() {
@@ -122,6 +165,7 @@ public class DownloadService extends Service {
     }
 
     private void finished(Item it, boolean ok) {
+        if (!Prefs.getBool(this, "notify", true)) return;
         Notification n = new Notification.Builder(this, CH_DONE)
                 .setSmallIcon(ok ? android.R.drawable.stat_sys_download_done : android.R.drawable.stat_notify_error)
                 .setContentTitle(ok ? "Download complete" : "Download failed")

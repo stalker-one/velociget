@@ -10,13 +10,27 @@ android {
         applicationId 'io.encodal.idm'
         minSdk 29
         targetSdk 34
-        versionCode 1
-        versionName '0.1.0'
+        versionCode Integer.parseInt((project.findProperty('vc') ?: '1').toString())
+        versionName '0.2.0'
     }
 
+    // One fixed key for every build, so a new APK installs over the old one (no "package conflict").
+    signingConfigs {
+        shared {
+            storeFile file('idm.keystore')
+            storeType 'pkcs12'
+            storePassword 'idmencodal'
+            keyAlias 'idm'
+            keyPassword 'idmencodal'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.shared
         }
     }
     compileOptions {

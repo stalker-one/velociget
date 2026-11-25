@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 final class Segmented {
     private static final String UA = "Mozilla/5.0 (Linux; Android 14) IDMByEncodal/0.1";
 
-    private static HttpURLConnection open(String url, long from, long to, int redirects) throws Exception {
+    private static HttpURLConnection open(String url, long from, long to, int redirects, String headers) throws Exception {
         for (int i = 0; i <= redirects; i++) {
             HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
             c.setInstanceFollowRedirects(false);
@@ -31,6 +31,12 @@ final class Segmented {
             c.setReadTimeout(30000);
             c.setRequestProperty("User-Agent", UA);
             c.setRequestProperty("Accept-Encoding", "identity");
+            if (headers != null) {
+                for (String line : headers.split("\n")) {
+                    int i = line.indexOf(':');
+                    if (i > 0) c.setRequestProperty(line.substring(0, i).trim(), line.substring(i + 1).trim());
+                }
+            }
             if (from >= 0) c.setRequestProperty("Range", "bytes=" + from + "-" + (to >= 0 ? to : ""));
             int code = c.getResponseCode();
             if (code >= 300 && code < 400 && c.getHeaderField("Location") != null) {
@@ -63,7 +69,7 @@ final class Segmented {
 
     /** Ask the server for size and Range support, create the file in Downloads and split it into segments. */
     private static void prepare(Context ctx, Item it) throws Exception {
-        HttpURLConnection probe = open(it.url, 0, 0, 8);
+        HttpURLConnection probe = open(it.url, 0, 0, 8, it.headers);
         int code = probe.getResponseCode();
         long total = -1;
         boolean ranges = false;
@@ -78,7 +84,7 @@ final class Segmented {
             probe.disconnect();
             throw new Exception(code == 403 ? "The site refused the download (403)" : code == 404 ? "File not found (404)" : "Server answered " + code);
         }
-        String name = nameFrom(probe, it.url).replaceAll("[\\\\/:*?\"<>|]+", "_");
+        String name = (it.name.isEmpty() ? nameFrom(probe, it.url) : it.name).replaceAll("[\\\\/:*?\"<>|]+", "_");
         String ct = probe.getContentType();
         String mime = ct == null ? "application/octet-stream" : ct.split(";")[0].trim();
         probe.disconnect();
@@ -94,7 +100,7 @@ final class Segmented {
         ContentValues v = new ContentValues();
         v.put(MediaStore.Downloads.DISPLAY_NAME, name);
         v.put(MediaStore.Downloads.MIME_TYPE, mime);
-        v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/IDM By Encodal");
+        v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + Prefs.folder(ctx));
         v.put(MediaStore.Downloads.IS_PENDING, 1);
         Uri out = ctx.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
         if (out == null) throw new Exception("Cannot create the file in Downloads");
@@ -184,13 +190,16 @@ final class Segmented {
         final long end = it.segEnd[idx];
         int attempts = 0;
         final byte[] buf = new byte[64 * 1024];
+        final int segs = Math.max(1, it.segStart.length);
         while (!it.stop && (!ranged || pos <= end)) {
             try {
-                HttpURLConnection c = open(it.url, ranged ? pos : -1, ranged ? end : -1, 8);
+                HttpURLConnection c = open(it.url, ranged ? pos : -1, ranged ? end : -1, 8, it.headers);
                 int code = c.getResponseCode();
                 if (ranged && code != 206) throw new Exception("The server stopped allowing ranges (" + code + ")");
                 if (code != 200 && code != 206) throw new Exception("Server answered " + code);
                 long before = pos;
+                final long t0 = System.nanoTime();
+                long sent = 0;
                 try (InputStream in = c.getInputStream()) {
                     int r;
                     while (!it.stop && (r = in.read(buf)) > 0) {
@@ -198,6 +207,12 @@ final class Segmented {
                         pos += r;
                         it.segPos.set(idx, pos);
                         if (!ranged) it.singleDone = pos;
+                        sent += r;
+                        long cap = Prefs.limitBps / segs;
+                        if (cap > 0) {
+                            long aheadMs = (sent * 1000L / cap) - (System.nanoTime() - t0) / 1000000L;
+                            if (aheadMs > 2) Thread.sleep(aheadMs);
+                        }
                     }
                 }
                 c.disconnect();
