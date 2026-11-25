@@ -97,6 +97,26 @@ public class SettingsActivity extends Activity {
         toggle(a, "Detect copied links", "Offer a copied link on the home screen", "clip", true);
         toggle(a, "Notify when finished", "One notification for every finished or failed file", "notify", true);
 
+        // engine
+        LinearLayout en = section(body, "Download engine");
+        final TextView ver0 = text("yt-dlp · checking…", 13, SUB, false);
+        ver0.setPadding(0, dp(6), 0, dp(8));
+        en.addView(ver0);
+        new Thread(() -> {
+            final String v = PyEngine.version(this);
+            runOnUiThread(() -> ver0.setText("yt-dlp " + v + " — reads YouTube, TikTok, Instagram, Facebook, X and 1000+ sites"));
+        }).start();
+        en.addView(button("Update engine", v -> {
+            Toast.makeText(this, "Updating…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                String msg;
+                try { PyEngine.update(this); msg = "Updated. Close and reopen the app to use it."; }
+                catch (Exception e) { msg = "Update failed: " + e.getMessage(); }
+                final String m = msg;
+                runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+            }).start();
+        }));
+
         // about
         LinearLayout ab = section(body, "About");
         String ver = "";

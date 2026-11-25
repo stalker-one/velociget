@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 final class Segmented {
     private static final String UA = "Mozilla/5.0 (Linux; Android 14) IDMByEncodal/0.1";
 
-    private static HttpURLConnection open(String url, long from, long to, int redirects, String headers) throws Exception {
+    static HttpURLConnection open(String url, long from, long to, int redirects, String headers) throws Exception {
         for (int i = 0; i <= redirects; i++) {
             HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
             c.setInstanceFollowRedirects(false);
@@ -167,6 +167,18 @@ final class Segmented {
             } else if (it.stop) {
                 it.state = Item.PAUSED;
             } else {
+                if (!it.audioUrl.isEmpty()) {
+                    it.phase = "Adding sound…";
+                    try {
+                        Merger.merge(ctx, it);
+                        it.audioUrl = "";
+                        it.error = "";
+                    } catch (Throwable e) {
+                        it.error = "Saved without sound (could not merge the audio track)";
+                    } finally {
+                        it.phase = "";
+                    }
+                }
                 ContentValues done = new ContentValues();
                 done.put(MediaStore.Downloads.IS_PENDING, 0);
                 cr.update(uri, done, null, null);

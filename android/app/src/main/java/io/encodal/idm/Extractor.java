@@ -33,7 +33,7 @@ final class Extractor {
     private static final String YT_UA = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
 
     static final class Fmt {
-        String label = "", detail = "", url = "", ext = "", mime = "", headers = "", name = "";
+        String label = "", detail = "", url = "", ext = "", mime = "", headers = "", name = "", audioUrl = "", audioHeaders = "";
         long size = -1;
         boolean video, audio;
     }
@@ -163,6 +163,36 @@ final class Extractor {
 
     // ------------------------------------------------------------------ entry
 
+    /** Returns details for a plain file link, or null when the link is a web page. Does not download the file. */
+    static Info directOnly(String url) throws Exception {
+        Resp r = fetch(url, "", false, false, null);
+        if (r.code >= 400) return null;
+        boolean texty = r.type.isEmpty() || r.type.startsWith("text/") || r.type.contains("json") || r.type.contains("xml");
+        if (texty) return null;
+        Info in = new Info();
+        in.url = url;
+        in.site = new URL(url).getHost().replaceFirst("^www\\.", "");
+        return directInfo(r, in);
+    }
+
+    private static Info directInfo(Resp r, Info in) throws Exception {
+        Resp p = fetch(r.url, "", false, true, null);
+        Fmt f = new Fmt();
+        f.url = r.url;
+        f.mime = r.type.split(";")[0].trim();
+        f.size = p.total > 0 ? p.total : r.length;
+        in.resumable = p.code == 206 && p.total > 0;
+        f.name = nameFrom(r.disp, r.url);
+        f.ext = extOf(f.name);
+        f.label = "Original file";
+        f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + (in.resumable ? " · resumable" : "");
+        f.video = f.mime.startsWith("video/");
+        in.fmts.add(f);
+        in.title = f.name;
+        in.direct = true;
+        return in;
+    }
+
     static Info resolve(String url) throws Exception {
         Info in = new Info();
         in.url = url;
@@ -182,23 +212,7 @@ final class Extractor {
         if (r.code >= 400) throw new Exception(r.code == 403 ? "The site refused the request (403)" : r.code == 404 ? "Not found (404)" : "Server answered " + r.code);
         boolean texty = r.type.isEmpty() || r.type.startsWith("text/") || r.type.contains("json") || r.type.contains("xml");
 
-        if (!texty) {
-            Resp p = fetch(r.url, "", false, true, null);
-            Fmt f = new Fmt();
-            f.url = r.url;
-            f.mime = r.type.split(";")[0].trim();
-            f.size = p.total > 0 ? p.total : r.length;
-            in.resumable = p.code == 206 && p.total > 0;
-            f.name = nameFrom(r.disp, r.url);
-            f.ext = extOf(f.name);
-            f.label = "Original file";
-            f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + (in.resumable ? " · resumable" : "");
-            f.video = f.mime.startsWith("video/");
-            in.fmts.add(f);
-            in.title = f.name;
-            in.direct = true;
-            return in;
-        }
+        if (!texty) return directInfo(r, in);
 
         String html = r.body == null ? "" : new String(r.body, "UTF-8");
         in.title = first(meta(html, "og:title"), meta(html, "twitter:title"), tagTitle(html));

@@ -102,6 +102,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
 
         Store.load(this, DownloadService.ITEMS);
+        PyEngine.warm(this);
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
 
         setContentView(build());
@@ -133,6 +134,7 @@ public class MainActivity extends Activity {
         if (u != null && !u.equals(lastClip) && !u.equals(urlField.getText().toString().trim())) {
             bannerUrl = u;
             bannerText.setText(shorten(u, 56));
+            Resolver.prefetch(this, u);
             banner.setVisibility(View.VISIBLE);
         }
     }
@@ -203,6 +205,18 @@ public class MainActivity extends Activity {
         urlField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         urlField.setSingleLine(true);
         urlField.setBackground(rect(FIELD, 10, LINE));
+        urlField.addTextChangedListener(new android.text.TextWatcher() {
+            private final Runnable fire = () -> {
+                String u = firstUrl(urlField.getText().toString());
+                if (u != null) Resolver.prefetch(MainActivity.this, u);
+            };
+            @Override public void beforeTextChanged(CharSequence a, int b, int c, int d) { }
+            @Override public void onTextChanged(CharSequence a, int b, int c, int d) { }
+            @Override public void afterTextChanged(android.text.Editable e) {
+                h.removeCallbacks(fire);
+                h.postDelayed(fire, 350);
+            }
+        });
         urlField.setPadding(dp(12), dp(11), dp(12), dp(11));
         LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
         fp.topMargin = dp(8);
@@ -439,7 +453,8 @@ public class MainActivity extends Activity {
         switch (it.state) {
             case Item.QUEUED: stat = "Waiting…"; break;
             case Item.DOWNLOADING:
-                if (it.stop) { stat = "Pausing…"; color = WARN; tint = WARN; }
+                if (!it.phase.isEmpty()) { stat = it.phase; color = PRIMARY; }
+                else if (it.stop) { stat = "Pausing…"; color = WARN; tint = WARN; }
                 else { stat = tot > 0 ? (pct / 10) + "% · " + sizes : "Downloading · " + sizes; color = PRIMARY; }
                 if (it.speed > 1) {
                     meta = sizeText((long) it.speed) + "/s";
@@ -448,7 +463,7 @@ public class MainActivity extends Activity {
                 } else meta = "Connecting…";
                 break;
             case Item.PAUSED: stat = (it.error.isEmpty() ? "Paused" : it.error) + " · " + (tot > 0 ? (pct / 10) + "% · " : "") + sizes; color = WARN; tint = WARN; break;
-            case Item.DONE: stat = "Complete · " + sizeText(Math.max(tot, got)); color = GOOD; tint = GOOD; pct = 1000; meta = "Saved in Downloads/" + Prefs.folder(this); break;
+            case Item.DONE: stat = "Complete · " + sizeText(Math.max(tot, got)); color = GOOD; tint = GOOD; pct = 1000; meta = it.error.isEmpty() ? "Saved in Downloads/" + Prefs.folder(this) : it.error; break;
             case Item.ERROR: stat = it.error.isEmpty() ? "Failed" : it.error; color = BAD; tint = BAD; break;
             default: stat = ""; break;
         }
@@ -457,7 +472,7 @@ public class MainActivity extends Activity {
         c.meta.setText(meta);
         c.meta.setVisibility(meta.isEmpty() ? View.GONE : View.VISIBLE);
 
-        boolean indet = it.state == Item.DOWNLOADING && tot <= 0 && !it.stop;
+        boolean indet = it.state == Item.DOWNLOADING && ((tot <= 0 && !it.stop) || !it.phase.isEmpty());
         if (indet != c.indeterminate) { c.bar.setIndeterminate(indet); c.indeterminate = indet; }
         c.bar.setProgressTintList(ColorStateList.valueOf(tint));
         c.bar.setProgressBackgroundTintList(ColorStateList.valueOf(dark ? 0xFF22304A : 0xFFE2E8F0));
@@ -501,10 +516,15 @@ public class MainActivity extends Activity {
     }
 
     private void startDownload(String url, String headers, String name, String mime) {
+        startDownload(url, headers, name, mime, "", "");
+    }
+
+    private void startDownload(String url, String headers, String name, String mime, String audio, String audioHeaders) {
         Intent s = new Intent(this, DownloadService.class).setAction(DownloadService.ADD)
                 .putExtra("url", url).putExtra("connections", conns);
         if (headers != null && !headers.isEmpty()) s.putExtra("headers", headers);
         if (name != null && !name.isEmpty()) s.putExtra("name", name);
+        if (audio != null && !audio.isEmpty()) s.putExtra("audio", audio).putExtra("audioHeaders", audioHeaders);
         startForegroundService(s);
         urlField.setText("");
         lastClip = url;
@@ -544,18 +564,9 @@ public class MainActivity extends Activity {
             Extractor.Info got = null;
             String err = null;
             try {
-                got = Extractor.resolve(url);
+                got = Resolver.get(this, url, false);
             } catch (Exception e) {
                 err = e.getMessage() == null ? e.toString() : e.getMessage();
-            }
-            // pages that build their video with JavaScript (Instagram, Facebook, X, Snapchat...): read them like a browser
-            if (got == null || (!got.direct && got.fmts.isEmpty())) {
-                try {
-                    got = WebSniffer.sniff(this, url, got);
-                    if (got.fmts.isEmpty() && err != null && got.note.isEmpty()) got.note = err;
-                } catch (Exception e) {
-                    if (err == null) err = e.toString();
-                }
             }
             final Extractor.Info info = got;
             final String error = err;
@@ -564,19 +575,20 @@ public class MainActivity extends Activity {
                 if (info != null && autoStartDirect && info.direct && info.fmts.size() == 1) {
                     dlg.dismiss();
                     Extractor.Fmt f = info.fmts.get(0);
-                    startDownload(f.url, f.headers, null, null);
+                    startDownload(f.url, f.headers, null, null, "", "");
                     return;
                 }
                 if (info == null) {
-                    if (autoStartDirect) { dlg.dismiss(); startDownload(url, "", null, null); }
-                    else {
-                        box.removeAllViews();
-                        box.addView(text("Could not read this link", 15, TXT, true));
-                        TextView m = text(error, 12, BAD, false);
-                        m.setPadding(0, dp(6), 0, dp(10));
-                        box.addView(m);
-                        box.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
-                    }
+                    box.removeAllViews();
+                    box.addView(text("Could not read this link", 15, TXT, true));
+                    TextView m = text(error, 12, BAD, false);
+                    m.setPadding(0, dp(6), 0, dp(10));
+                    box.addView(m);
+                    LinearLayout fr = new LinearLayout(this);
+                    fr.setGravity(Gravity.END);
+                    fr.addView(pill("Sign in", WARN, false, v -> { dlg.dismiss(); startActivity(new Intent(this, BrowserActivity.class).putExtra("url", url)); }));
+                    fr.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
+                    box.addView(fr);
                     return;
                 }
                 fillDetails(box, dlg, info);
@@ -640,33 +652,63 @@ public class MainActivity extends Activity {
                 tx.addView(text(f.label, 14, TXT, true));
                 tx.addView(text(f.detail, 12, SUB, false));
                 row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-                row.addView(pill("Download", PRIMARY, true, v -> {
+                LinearLayout act2 = new LinearLayout(this);
+                act2.setOrientation(LinearLayout.VERTICAL);
+                act2.setGravity(Gravity.CENTER_HORIZONTAL);
+                act2.addView(pill("Download", PRIMARY, true, v -> {
                     dlg.dismiss();
-                    startDownload(f.url, f.headers, f.name, f.mime);
+                    startDownload(f.url, f.headers, f.name, f.mime, f.audioUrl, f.audioHeaders);
                 }));
+                act2.addView(pill("Copy URL", SUB, false, v -> copy("Direct URL", f.url)));
+                row.addView(act2);
                 LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
                 rp.bottomMargin = dp(6);
                 box.addView(row, rp);
             }
         }
 
+        LinearLayout copies = new LinearLayout(this);
+        copies.setGravity(Gravity.END);
+        if (!in.title.isEmpty()) copies.addView(pill("Copy title", SUB, false, v -> copy("Title", in.title)));
+        if (!in.desc.isEmpty()) copies.addView(pill("Copy description", SUB, false, v -> copy("Description", in.desc)));
+        copies.addView(pill("Copy link", SUB, false, v -> copy("Link", in.url)));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
+        cp.topMargin = dp(8);
+        box.addView(copies, cp);
+
         LinearLayout foot = new LinearLayout(this);
         foot.setGravity(Gravity.END);
+        foot.addView(pill("Copy all details", PRIMARY, false, v -> copy("Details", allDetails(in))));
         if (in.fmts.isEmpty()) {
             foot.addView(pill("Sign in", WARN, false, v -> {
                 dlg.dismiss();
                 startActivity(new Intent(this, BrowserActivity.class).putExtra("url", in.url));
             }));
         }
-        foot.addView(pill("Copy link", SUB, false, v -> {
-            ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("link", in.url));
-            lastClip = in.url;
-            toast("Link copied");
-        }));
-        foot.addView(pill("Close", PRIMARY, false, v -> dlg.dismiss()));
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
-        fp.topMargin = dp(6);
-        box.addView(foot, fp);
+        foot.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
+        box.addView(foot, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void copy(String what, String text) {
+        ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText(what, text));
+        toast(what + " copied");
+    }
+
+    private String allDetails(Extractor.Info in) {
+        StringBuilder b = new StringBuilder();
+        b.append("Title: ").append(in.title).append('\n');
+        b.append("Site: ").append(in.site).append('\n');
+        if (!in.uploader.isEmpty()) b.append("Uploader: ").append(in.uploader).append('\n');
+        if (in.duration > 0) b.append("Duration: ").append(clock(in.duration / 1000)).append('\n');
+        b.append("Link: ").append(in.url).append('\n');
+        if (!in.thumb.isEmpty()) b.append("Thumbnail: ").append(in.thumb).append('\n');
+        if (!in.desc.isEmpty()) b.append("\nDescription:\n").append(in.desc).append('\n');
+        if (!in.fmts.isEmpty()) b.append("\nDownloads:\n");
+        for (Extractor.Fmt f : in.fmts) {
+            b.append("- ").append(f.label).append(" · ").append(f.detail).append('\n').append("  ").append(f.url).append('\n');
+            if (!f.audioUrl.isEmpty()) b.append("  audio: ").append(f.audioUrl).append('\n');
+        }
+        return b.toString();
     }
 
     private static String clock(long s) {

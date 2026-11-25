@@ -19,6 +19,9 @@ final class Item {
     volatile int connections = 8;
     volatile boolean resumable;
     volatile String uri = "";
+    volatile String audioUrl = "";
+    volatile String audioHeaders = "";
+    volatile String phase = "";
     volatile String headers = ""; // extra request headers (cookies, referer) needed by some sites
     volatile long[] segStart;
     volatile long[] segEnd;
@@ -56,7 +59,7 @@ final class Item {
             JSONObject o = new JSONObject();
             o.put("id", id).put("url", url).put("name", name).put("mime", mime).put("total", total)
                     .put("state", state).put("error", error).put("conns", connections).put("resumable", resumable)
-                    .put("uri", uri).put("headers", headers).put("created", created).put("finished", finishedAt);
+                    .put("uri", uri).put("headers", headers).put("audioUrl", audioUrl).put("audioHeaders", audioHeaders).put("created", created).put("finished", finishedAt);
             if (segStart != null && segPos != null) {
                 JSONArray a = new JSONArray(), b = new JSONArray(), c = new JSONArray();
                 for (int i = 0; i < segStart.length; i++) { a.put(segStart[i]); b.put(segEnd[i]); c.put(segPos.get(i)); }
@@ -80,6 +83,8 @@ final class Item {
             it.resumable = o.optBoolean("resumable");
             it.uri = o.optString("uri");
             it.headers = o.optString("headers");
+            it.audioUrl = o.optString("audioUrl");
+            it.audioHeaders = o.optString("audioHeaders");
             it.created = o.optLong("created");
             it.finishedAt = o.optLong("finished");
             if (o.has("ss")) {

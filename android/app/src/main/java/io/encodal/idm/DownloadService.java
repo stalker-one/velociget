@@ -46,6 +46,8 @@ public class DownloadService extends Service {
             it.connections = intent.getIntExtra("connections", Prefs.conns(this));
             if (intent.getStringExtra("headers") != null) it.headers = intent.getStringExtra("headers");
             if (intent.getStringExtra("name") != null) it.name = intent.getStringExtra("name");
+            if (intent.getStringExtra("audio") != null) it.audioUrl = intent.getStringExtra("audio");
+            if (intent.getStringExtra("audioHeaders") != null) it.audioHeaders = intent.getStringExtra("audioHeaders");
             ITEMS.add(0, it);
             launch(it);
         } else if (intent != null && RESUME.equals(intent.getAction())) {
