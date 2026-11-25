@@ -250,7 +250,7 @@ final class Extractor {
         return in;
     }
 
-    private static void probeAll(final List<Fmt> list) {
+    static void probeAll(final List<Fmt> list) {
         if (list.isEmpty()) return;
         ExecutorService ex = Executors.newFixedThreadPool(6);
         List<Future<?>> fs = new ArrayList<>();

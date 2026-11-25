@@ -534,7 +534,7 @@ public class MainActivity extends Activity {
         final AlertDialog dlg = new AlertDialog.Builder(this).setView(sv).create();
         ProgressBar pb = new ProgressBar(this);
         box.addView(pb, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        TextView lt = text("Reading the link…", 13, SUB, false);
+        TextView lt = text("Reading the link… some sites take a few seconds", 13, SUB, false);
         lt.setPadding(0, dp(8), 0, dp(8));
         box.addView(lt);
         dlg.show();
@@ -547,6 +547,15 @@ public class MainActivity extends Activity {
                 got = Extractor.resolve(url);
             } catch (Exception e) {
                 err = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            // pages that build their video with JavaScript (Instagram, Facebook, X, Snapchat...): read them like a browser
+            if (got == null || (!got.direct && got.fmts.isEmpty())) {
+                try {
+                    got = WebSniffer.sniff(this, url, got);
+                    if (got.fmts.isEmpty() && err != null && got.note.isEmpty()) got.note = err;
+                } catch (Exception e) {
+                    if (err == null) err = e.toString();
+                }
             }
             final Extractor.Info info = got;
             final String error = err;
@@ -643,6 +652,12 @@ public class MainActivity extends Activity {
 
         LinearLayout foot = new LinearLayout(this);
         foot.setGravity(Gravity.END);
+        if (in.fmts.isEmpty()) {
+            foot.addView(pill("Sign in", WARN, false, v -> {
+                dlg.dismiss();
+                startActivity(new Intent(this, BrowserActivity.class).putExtra("url", in.url));
+            }));
+        }
         foot.addView(pill("Copy link", SUB, false, v -> {
             ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("link", in.url));
             lastClip = in.url;
