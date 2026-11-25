@@ -33,8 +33,8 @@ final class Segmented {
             c.setRequestProperty("Accept-Encoding", "identity");
             if (headers != null) {
                 for (String line : headers.split("\n")) {
-                    int i = line.indexOf(':');
-                    if (i > 0) c.setRequestProperty(line.substring(0, i).trim(), line.substring(i + 1).trim());
+                    int colon = line.indexOf(':');
+                    if (colon > 0) c.setRequestProperty(line.substring(0, colon).trim(), line.substring(colon + 1).trim());
                 }
             }
             if (from >= 0) c.setRequestProperty("Range", "bytes=" + from + "-" + (to >= 0 ? to : ""));
