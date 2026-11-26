@@ -11,10 +11,11 @@ android {
         applicationId 'io.encodal.idm'
         minSdk 29
         targetSdk 34
-        versionCode Integer.parseInt((project.findProperty('vc') ?: '1').toString())
-        versionName '0.3.0'
+        // minutes since 1970: always higher than any older build, so Android never sees a "downgrade"
+        versionCode (project.findProperty('vc') ?: (System.currentTimeMillis().intdiv(60000)).toString()).toString().toInteger()
+        versionName '0.4.0'
         ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
     }
 
@@ -39,6 +40,12 @@ android {
             minifyEnabled false
             signingConfig signingConfigs.shared
         }
+    }
+    // Classic APK layout (compressed libraries and dex): every phone's installer accepts it,
+    // including makers' own installers that reject the "stored, page-aligned" layout.
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+        dex { useLegacyPackaging = true }
     }
     lint {
         checkReleaseBuilds false
