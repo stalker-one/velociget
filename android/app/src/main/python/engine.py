@@ -58,9 +58,21 @@ def probe(url, cookiefile=None, upd=None):
                 continue
             headers = {}
             try:
-                headers = dict(ydl._calc_headers(dict(f)))
+                try:
+                    headers = dict(ydl._calc_headers(dict(f), load_cookies=True))
+                except TypeError:
+                    headers = dict(ydl._calc_headers(dict(f)))
             except Exception:
                 headers = dict(f.get("http_headers") or info.get("http_headers") or {})
+            if not any(k.lower() == "cookie" for k in headers):
+                try:
+                    ck = ydl.cookiejar.get_cookie_header(u)
+                    if ck:
+                        headers["Cookie"] = ck
+                except Exception:
+                    pass
+            if not any(k.lower() == "user-agent" for k in headers):
+                headers["User-Agent"] = (info.get("http_headers") or {}).get("User-Agent") or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
             fmts.append({
                 "id": _s(f.get("format_id")),
                 "url": u,

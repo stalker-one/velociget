@@ -385,7 +385,7 @@ final class Extractor {
                 in.duration = video.optLong("duration", 0);
             }
 
-            String hdr = "Referer: https://www.tiktok.com/" + (cookie == null || cookie.isEmpty() ? "" : "\nCookie: " + cookie);
+            String hdr = "Referer: https://www.tiktok.com/\nUser-Agent: " + UA + (cookie == null || cookie.isEmpty() ? "" : "\nCookie: " + cookie);
             Set<String> seen = new LinkedHashSet<>();
             final List<Fmt> list = new ArrayList<>();
             if (photos) {

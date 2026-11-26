@@ -34,6 +34,9 @@ public class PreviewActivity extends Activity {
     private VideoView video;
     private String uri, mime, title;
     private boolean cachedTry;
+    private java.util.ArrayList<String> plUris, plNames, plMimes;
+    private int plIdx;
+    private TextView titleView;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -44,6 +47,10 @@ public class PreviewActivity extends Activity {
         mime = getIntent().getStringExtra("mime");
         title = getIntent().getStringExtra("title");
         final String headers = getIntent().getStringExtra("headers");
+        plUris = getIntent().getStringArrayListExtra("pl_uris");
+        plNames = getIntent().getStringArrayListExtra("pl_names");
+        plMimes = getIntent().getStringArrayListExtra("pl_mimes");
+        plIdx = getIntent().getIntExtra("pl_index", 0);
         if (uri == null) { finish(); return; }
         if (mime == null) mime = "";
 
@@ -67,7 +74,24 @@ public class PreviewActivity extends Activity {
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setSingleLine(true);
         t.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        titleView = t;
         bar.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
+        if (plUris != null && plUris.size() > 1) {
+            TextView pv = new TextView(this);
+            pv.setText("⏮");
+            pv.setTextColor(Color.WHITE);
+            pv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            pv.setPadding(dp(10), dp(6), dp(10), dp(6));
+            pv.setOnClickListener(v -> step(-1));
+            bar.addView(pv);
+            TextView nx = new TextView(this);
+            nx.setText("⏭");
+            nx.setTextColor(Color.WHITE);
+            nx.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            nx.setPadding(dp(10), dp(6), dp(10), dp(6));
+            nx.setOnClickListener(v -> step(1));
+            bar.addView(nx);
+        }
         TextView open = new TextView(this);
         open.setText("Open with…");
         open.setTextColor(0xFF93C5FD);
@@ -105,6 +129,22 @@ public class PreviewActivity extends Activity {
         else say("This file type cannot be previewed here.\nTap \"Open with…\" to use another app.");
     }
 
+    /** Next / previous file of the playlist (files opened from the Files screen). */
+    private void step(int d) {
+        if (plUris == null || video == null) return;
+        int n = plIdx + d;
+        if (n < 0 || n >= plUris.size()) return;
+        plIdx = n;
+        uri = plUris.get(n);
+        mime = plMimes.get(n);
+        title = plNames.get(n);
+        titleView.setText(title);
+        message.setVisibility(View.GONE);
+        spinner.setVisibility(View.VISIBLE);
+        video.stopPlayback();
+        video.setVideoURI(Uri.parse(uri));
+    }
+
     private Map<String, String> headerMap(String h) {
         Map<String, String> map = new HashMap<>();
         if (h != null) {
@@ -135,6 +175,7 @@ public class PreviewActivity extends Activity {
             video.start();
             if (audio) say("♪");
         });
+        video.setOnCompletionListener(mp -> { if (plUris != null && plIdx < plUris.size() - 1) step(1); });
         video.setOnErrorListener((mp, what, extra) -> {
             if (uri.startsWith("http") && !cachedTry) {
                 cachedTry = true;

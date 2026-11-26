@@ -147,6 +147,7 @@ final class PyEngine {
 
         final List<Extractor.Fmt> muxed = new ArrayList<>(), vonly = new ArrayList<>(), aonly = new ArrayList<>();
         final List<Double> abrOf = new ArrayList<>();
+        final java.util.Set<String> dedupe = new java.util.HashSet<>();
         final List<Extractor.Fmt> hlsRows = new ArrayList<>();
         JSONArray fa = j.optJSONArray("fmts");
         if (fa != null) {
@@ -172,6 +173,9 @@ final class PyEngine {
                     continue;
                 }
                 String vc = o.optString("vc"), ac = o.optString("ac"), ext = o.optString("ext", "mp4");
+                // CDN mirrors of the same stream ("…_364998-0" and "…-1") are listed once
+                String dk = o.optString("id").replaceAll("-\\d+$", "") + "|" + o.optInt("h") + "|" + vc + "|" + ac + "|" + ext;
+                if (!dedupe.add(dk)) continue;
                 int h = o.optInt("h"), w = o.optInt("w");
                 long size = o.optLong("fs", 0);
                 Extractor.Fmt f = new Extractor.Fmt();

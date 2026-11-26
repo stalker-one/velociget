@@ -184,6 +184,10 @@ public class MainActivity extends Activity {
         titles.addView(t);
         titles.addView(st);
         head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView files = text("📁", 20, Color.WHITE, false);
+        files.setPadding(dp(8), dp(2), dp(4), dp(2));
+        files.setOnClickListener(v -> startActivity(new Intent(this, FilesActivity.class)));
+        head.addView(files);
         TextView gear = text("⚙", 22, Color.WHITE, false);
         gear.setPadding(dp(8), dp(2), dp(14), dp(2));
         gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));

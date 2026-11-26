@@ -383,6 +383,7 @@ public class BrowserActivity extends Activity {
         int shown = 0;
         List<Extractor.Fmt> copy;
         synchronized (caps) { copy = new ArrayList<>(caps); }
+        Collections.sort(copy, (x, y) -> Long.compare(y.size, x.size));
         for (final Extractor.Fmt f : copy) {
             if (f.size == -2) continue;
             shown++;
@@ -395,7 +396,8 @@ public class BrowserActivity extends Activity {
             row.setBackground(g);
             String file = f.url.split("\\?")[0];
             file = file.substring(file.lastIndexOf('/') + 1);
-            row.addView(label(f.label.isEmpty() ? f.name : f.label, 14, 0xFF0F172A, true));
+            String kind = f.audio && !f.video ? "" : f.hls ? "" : f.size > 0 && f.size < 15L * 1024 * 1024 ? " · short clip / trailer" : f.size >= 15L * 1024 * 1024 ? " · full video" : "";
+            row.addView(label((f.label.isEmpty() ? f.name : f.label) + kind, 14, 0xFF0F172A, true));
             String sz = f.size > 0 ? (f.hls ? "~" : "") + MainActivity.sizeText(f.size) : (f.hls ? "stream" : "checking size…");
             row.addView(label(sz + " · " + (f.hls ? "saved as MP4" : (file.length() > 34 ? file.substring(0, 33) + "…" : file)), 12, 0xFF64748B, false));
             LinearLayout acts = new LinearLayout(this);
