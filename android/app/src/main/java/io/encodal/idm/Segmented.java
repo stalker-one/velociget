@@ -29,7 +29,7 @@ final class Segmented {
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(20000);
             c.setReadTimeout(30000);
-            c.setRequestProperty("User-Agent", UA);
+            c.setRequestProperty("User-Agent", Prefs.ua.isEmpty() ? UA : Prefs.ua);
             c.setRequestProperty("Accept-Encoding", "identity");
             if (headers != null) {
                 for (String line : headers.split("\n")) {

@@ -27,7 +27,7 @@ import java.util.function.IntConsumer;
 public class SettingsActivity extends Activity {
     private int BG, CARD, TXT, SUB, LINE, FIELD;
     private static final int PRIMARY = 0xFF2563EB;
-    private EditText folder;
+    private EditText folder, uaField;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -90,6 +90,20 @@ public class SettingsActivity extends Activity {
         fp.topMargin = dp(6);
         d.addView(folder, fp);
 
+        label(d, "Custom user agent (optional)");
+        uaField = new EditText(this);
+        uaField.setText(Prefs.getStr(this, "ua", ""));
+        uaField.setHint("Leave empty for the default");
+        uaField.setHintTextColor(SUB);
+        uaField.setSingleLine(true);
+        uaField.setTextColor(TXT);
+        uaField.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        uaField.setBackground(rect(FIELD, 10, LINE));
+        uaField.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1, -2);
+        up.topMargin = dp(6);
+        d.addView(uaField, up);
+
         // appearance & alerts
         LinearLayout a = section(body, "Appearance and alerts");
         label(a, "Theme");
@@ -148,6 +162,7 @@ public class SettingsActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (folder != null) Prefs.putStr(this, "folder", folder.getText().toString());
+        if (uaField != null) { Prefs.putStr(this, "ua", uaField.getText().toString()); Prefs.refresh(this); }
     }
 
     private int indexOf(int[] a, int v) {

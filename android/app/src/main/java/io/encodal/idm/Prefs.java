@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 /** App settings. */
 final class Prefs {
     static volatile long limitBps;
+    static volatile String ua = "";
 
     private static SharedPreferences sp(Context c) {
         return c.getApplicationContext().getSharedPreferences("settings", Context.MODE_PRIVATE);
@@ -27,5 +28,8 @@ final class Prefs {
         return f.isEmpty() ? "IDM By Encodal" : f;
     }
 
-    static void refresh(Context c) { limitBps = getInt(c, "limit", 0) * 1024L; }
+    static void refresh(Context c) {
+        limitBps = getInt(c, "limit", 0) * 1024L;
+        ua = getStr(c, "ua", "").trim();
+    }
 }

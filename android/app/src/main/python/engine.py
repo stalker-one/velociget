@@ -29,7 +29,9 @@ def probe(url, cookiefile=None, upd=None):
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
-        "socket_timeout": 15,
+        "socket_timeout": 25,
+        "source_address": "0.0.0.0",  # IPv4 only: some mobile networks stall on IPv6
+        "extractor_args": {"youtube": {"skip": ["hls", "dash", "translated_subs"]}},
         "extractor_retries": 1,
         "ignoreconfig": True,
         "cachedir": False,

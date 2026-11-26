@@ -73,6 +73,10 @@ final class Extractor {
     }
 
     private static Resp fetch(String url, String extra, boolean readBody, boolean range, String postJson) throws Exception {
+        return fetch(url, extra, readBody, range, postJson, 4_000_000);
+    }
+
+    private static Resp fetch(String url, String extra, boolean readBody, boolean range, String postJson, int max) throws Exception {
         Map<String, String> jar = new LinkedHashMap<>();
         String cur = url;
         for (int hop = 0; hop < 9; hop++) {
@@ -125,7 +129,7 @@ final class Extractor {
                     ByteArrayOutputStream bo = new ByteArrayOutputStream();
                     byte[] buf = new byte[32768];
                     int n;
-                    while ((n = in.read(buf)) > 0 && bo.size() < 4_000_000) bo.write(buf, 0, n);
+                    while ((n = in.read(buf)) > 0 && bo.size() < max) bo.write(buf, 0, n);
                     in.close();
                     r.body = bo.toByteArray();
                 }
@@ -162,6 +166,46 @@ final class Extractor {
     }
 
     // ------------------------------------------------------------------ entry
+
+    /** Title, description and thumbnail only, in well under a second, so the dialog can show something while formats are still loading. */
+    static Info quick(String url) throws Exception {
+        Info in = new Info();
+        in.url = url;
+        String host = new URL(url).getHost().toLowerCase(Locale.US);
+        in.site = host.startsWith("www.") ? host.substring(4) : host;
+        String api = null;
+        if (host.endsWith("youtube.com") || host.equals("youtu.be")) {
+            api = "https://www.youtube.com/oembed?format=json&url=" + java.net.URLEncoder.encode(url, "UTF-8");
+            Matcher m = Pattern.compile("(?:v=|youtu\\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})").matcher(url);
+            if (m.find()) in.thumb = "https://i.ytimg.com/vi/" + m.group(1) + "/hqdefault.jpg";
+        } else if (host.endsWith("tiktok.com")) {
+            api = "https://www.tiktok.com/oembed?url=" + java.net.URLEncoder.encode(url, "UTF-8");
+        }
+        if (api != null) {
+            try {
+                Resp r = fetch(api, "", true, false, null, 200_000);
+                if (r.body != null && r.code == 200) {
+                    JSONObject j = new JSONObject(new String(r.body, "UTF-8"));
+                    in.title = j.optString("title");
+                    in.uploader = j.optString("author_name");
+                    if (!j.optString("thumbnail_url").isEmpty()) in.thumb = j.optString("thumbnail_url");
+                    if (!in.title.isEmpty()) return in;
+                }
+            } catch (Exception ignored) { }
+        }
+        Resp r = fetch(url, "", true, false, null, 350_000);
+        in.thumbReferer = r.url;
+        if (r.body == null) {
+            in.title = nameFrom(r.disp, r.url);
+            return in;
+        }
+        String html = new String(r.body, "UTF-8");
+        in.title = first(meta(html, "og:title"), meta(html, "twitter:title"), tagTitle(html));
+        in.desc = first(meta(html, "og:description"), meta(html, "twitter:description"), meta(html, "description"));
+        in.thumb = first(absolute(r.url, first(meta(html, "og:image"), meta(html, "twitter:image"))), in.thumb);
+        in.uploader = first(meta(html, "og:site_name"), in.uploader);
+        return in;
+    }
 
     /** Returns details for a plain file link, or null when the link is a web page. Does not download the file. */
     static Info directOnly(String url) throws Exception {

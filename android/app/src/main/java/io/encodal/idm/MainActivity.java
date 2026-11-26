@@ -6,12 +6,19 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.animation.ValueAnimator;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -53,6 +60,7 @@ public class MainActivity extends Activity {
     private TextView totalSpeed, summary, clear, empty, bannerText;
     private LinearLayout list, banner;
     private TextView[] chips;
+    private EditText fRef, fCookie, fHeaders, fUa, fUser, fPass;
     private final int[] chipValues = {4, 8, 16, 32};
     private int conns = 8;
     private String lastClip = "", bannerUrl;
@@ -239,6 +247,25 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = dp(8);
         lc.addView(row, rp);
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setGravity(Gravity.CENTER_VERTICAL);
+        final LinearLayout adv = new LinearLayout(this);
+        adv.setOrientation(LinearLayout.VERTICAL);
+        adv.setVisibility(View.GONE);
+        fRef = field("Referer (page address)", false);
+        fCookie = field("Cookie", false);
+        fUa = field("User agent", false);
+        fHeaders = field("Custom headers, one per line (Name: value)", true);
+        fUser = field("User name", false);
+        fPass = field("Password", false);
+        fPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        adv.addView(fRef); adv.addView(fCookie); adv.addView(fUa); adv.addView(fHeaders); adv.addView(fUser); adv.addView(fPass);
+        row2.addView(pill("Batch / pattern", PRIMARY, false, v -> showBatch()));
+        row2.addView(pill("Advanced ▾", SUB, false, v -> adv.setVisibility(adv.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)));
+        lc.addView(row2, new LinearLayout.LayoutParams(-1, -2));
+        lc.addView(adv, new LinearLayout.LayoutParams(-1, -2));
 
         TextView cl = text("Connections per file", 12, SUB, false);
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2);
@@ -499,8 +526,11 @@ public class MainActivity extends Activity {
                     c.actions.addView(pill("Remove", BAD, false, v -> cancel(it)));
                     break;
                 case Item.DONE:
-                    c.actions.addView(pill("Open", GOOD, true, v -> openFile(it)));
-                    c.actions.addView(pill("Delete", BAD, false, v -> confirmDelete(it)));
+                    if (previewable(it.mime, it.name.contains(".") ? it.name.substring(it.name.lastIndexOf('.') + 1) : "")) {
+                        c.actions.addView(pill("Preview", GOOD, true, v -> openPreview(it.uri, "", it.mime, it.name)));
+                    }
+                    c.actions.addView(pill("Open", PRIMARY, false, v -> openFile(it)));
+                    c.actions.addView(pill("More", SUB, false, v -> more(it)));
                     break;
                 default: break;
             }
@@ -520,16 +550,21 @@ public class MainActivity extends Activity {
     }
 
     private void startDownload(String url, String headers, String name, String mime, String audio, String audioHeaders) {
+        enqueue(url, headers, name, audio, audioHeaders);
+        urlField.setText("");
+        lastClip = url;
+        banner.setVisibility(View.GONE);
+        toast("Download started");
+    }
+
+    private void enqueue(String url, String headers, String name, String audio, String audioHeaders) {
+        headers = (headers == null ? "" : headers) + advancedHeaders();
         Intent s = new Intent(this, DownloadService.class).setAction(DownloadService.ADD)
                 .putExtra("url", url).putExtra("connections", conns);
         if (headers != null && !headers.isEmpty()) s.putExtra("headers", headers);
         if (name != null && !name.isEmpty()) s.putExtra("name", name);
         if (audio != null && !audio.isEmpty()) s.putExtra("audio", audio).putExtra("audioHeaders", audioHeaders);
         startForegroundService(s);
-        urlField.setText("");
-        lastClip = url;
-        banner.setVisibility(View.GONE);
-        toast("Download started");
     }
 
     private void resume(Item it) {
@@ -545,21 +580,113 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- link details
 
+    private static final Map<String, Bitmap> THUMBS = new HashMap<>();
+
+    /** A grey bar with a light band sliding across it: shown while a link is being read. */
+    static final class Shimmer extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF r = new RectF();
+        private final int base, hi;
+        private final float radius;
+        private float phase;
+        private final ValueAnimator an = ValueAnimator.ofFloat(0f, 1f);
+
+        Shimmer(Context c, int base, int hi, float radius) {
+            super(c);
+            this.base = base;
+            this.hi = hi;
+            this.radius = radius;
+            an.setDuration(1100);
+            an.setRepeatCount(ValueAnimator.INFINITE);
+            an.addUpdateListener(a -> { phase = (Float) a.getAnimatedValue(); invalidate(); });
+        }
+
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); an.start(); }
+        @Override protected void onDetachedFromWindow() { an.cancel(); super.onDetachedFromWindow(); }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            float w = Math.max(1, getWidth());
+            float x = phase * w * 2 - w;
+            p.setShader(new LinearGradient(x, 0, x + w, 0, new int[]{base, hi, base}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
+            r.set(0, 0, getWidth(), getHeight());
+            canvas.drawRoundRect(r, radius, radius, p);
+        }
+    }
+
+    private Shimmer bar(int heightDp, int widthPercent, int radiusDp, int bottomDp) {
+        Shimmer s = new Shimmer(this, dark ? 0xFF1B2740 : 0xFFE8EDF4, dark ? 0xFF2C3E63 : 0xFFF8FAFD, dp(radiusDp));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(widthPercent >= 100 ? -1 : (int) (getResources().getDisplayMetrics().widthPixels * 0.82f * widthPercent / 100f), dp(heightDp));
+        lp.bottomMargin = dp(bottomDp);
+        s.setLayoutParams(lp);
+        return s;
+    }
+
+    private void skeletonHead(LinearLayout head) {
+        head.removeAllViews();
+        head.addView(bar(180, 100, 12, 12));
+        head.addView(bar(18, 75, 6, 8));
+        head.addView(bar(12, 45, 6, 4));
+    }
+
+    private void skeletonBody(final LinearLayout body) {
+        body.removeAllViews();
+        body.setTag("loading");
+        ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        pb.setIndeterminate(true);
+        pb.setIndeterminateTintList(ColorStateList.valueOf(PRIMARY));
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, dp(4));
+        pp.topMargin = dp(14);
+        body.addView(pb, pp);
+        final String[] msgs = {"Reading the link…", "Finding every quality…", "Checking file sizes…", "Almost ready…"};
+        final TextView st = text(msgs[0], 12, SUB, true);
+        st.setPadding(0, dp(8), 0, dp(10));
+        body.addView(st);
+        for (int i = 0; i < 4; i++) body.addView(bar(58, 100, 12, 6));
+        final int[] k = {0};
+        h.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!"loading".equals(body.getTag())) return;
+                k[0] = Math.min(k[0] + 1, msgs.length - 1);
+                st.setText(msgs[k[0]]);
+                h.postDelayed(this, 1400);
+            }
+        }, 1400);
+    }
+
+    private boolean alive(AlertDialog d) {
+        return !isFinishing() && d.isShowing();
+    }
+
     private void openDetails(final String url, final boolean autoStartDirect) {
         final LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(16), dp(16), dp(16), dp(12));
+        final LinearLayout headBox = new LinearLayout(this);
+        headBox.setOrientation(LinearLayout.VERTICAL);
+        final LinearLayout bodyBox = new LinearLayout(this);
+        bodyBox.setOrientation(LinearLayout.VERTICAL);
+        box.addView(headBox);
+        box.addView(bodyBox);
         ScrollView sv = new ScrollView(this);
         sv.addView(box);
         final AlertDialog dlg = new AlertDialog.Builder(this).setView(sv).create();
-        ProgressBar pb = new ProgressBar(this);
-        box.addView(pb, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        TextView lt = text("Reading the link… some sites take a few seconds", 13, SUB, false);
-        lt.setPadding(0, dp(8), 0, dp(8));
-        box.addView(lt);
         dlg.show();
         if (dlg.getWindow() != null) dlg.getWindow().setBackgroundDrawable(rect(CARD, 16, 0));
+        skeletonHead(headBox);
+        skeletonBody(bodyBox);
 
+        // title and picture first (usually under a second) ...
+        new Thread(() -> {
+            try {
+                final Extractor.Info m = Resolver.meta(this, url);
+                runOnUiThread(() -> {
+                    if (alive(dlg) && "loading".equals(bodyBox.getTag())) fillHeader(headBox, m, true);
+                });
+            } catch (Exception ignored) { }
+        }).start();
+
+        // ... then the full list of qualities
         new Thread(() -> {
             Extractor.Info got = null;
             String err = null;
@@ -571,99 +698,131 @@ public class MainActivity extends Activity {
             final Extractor.Info info = got;
             final String error = err;
             runOnUiThread(() -> {
-                if (isFinishing() || !dlg.isShowing()) return;
+                if (!alive(dlg)) return;
                 if (info != null && autoStartDirect && info.direct && info.fmts.size() == 1) {
+                    bodyBox.setTag("done");
                     dlg.dismiss();
                     Extractor.Fmt f = info.fmts.get(0);
                     startDownload(f.url, f.headers, null, null, "", "");
                     return;
                 }
+                bodyBox.setTag("done");
                 if (info == null) {
-                    box.removeAllViews();
-                    box.addView(text("Could not read this link", 15, TXT, true));
+                    headBox.removeAllViews();
+                    bodyBox.removeAllViews();
+                    bodyBox.addView(text("Could not read this link", 15, TXT, true));
                     TextView m = text(error, 12, BAD, false);
                     m.setPadding(0, dp(6), 0, dp(10));
-                    box.addView(m);
+                    bodyBox.addView(m);
                     LinearLayout fr = new LinearLayout(this);
                     fr.setGravity(Gravity.END);
                     fr.addView(pill("Sign in", WARN, false, v -> { dlg.dismiss(); startActivity(new Intent(this, BrowserActivity.class).putExtra("url", url)); }));
                     fr.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
-                    box.addView(fr);
+                    bodyBox.addView(fr);
                     return;
                 }
-                fillDetails(box, dlg, info);
+                fillHeader(headBox, info, false);
+                fillBody(bodyBox, dlg, info);
             });
         }).start();
     }
 
-    private void fillDetails(LinearLayout box, final AlertDialog dlg, final Extractor.Info in) {
-        box.removeAllViews();
-        final ImageView iv = new ImageView(this);
-        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        iv.setBackground(rect(FIELD, 12, 0));
-        iv.setClipToOutline(true);
+    private void fillHeader(LinearLayout head, final Extractor.Info in, boolean partial) {
+        if (partial && in.title.isEmpty() && in.thumb.isEmpty()) return;
+        head.removeAllViews();
         if (!in.thumb.isEmpty()) {
-            new Thread(() -> {
-                try {
-                    final Bitmap bm = Extractor.bitmap(in.thumb, in.thumbReferer);
-                    if (bm != null) runOnUiThread(() -> iv.setImageBitmap(bm));
-                } catch (Exception ignored) { }
-            }).start();
-            box.addView(iv, new LinearLayout.LayoutParams(-1, dp(180)));
+            final ImageView iv = new ImageView(this);
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            iv.setBackground(rect(FIELD, 12, 0));
+            iv.setClipToOutline(true);
+            Bitmap cached = THUMBS.get(in.thumb);
+            if (cached != null) {
+                iv.setImageBitmap(cached);
+            } else {
+                iv.setAlpha(0f);
+                new Thread(() -> {
+                    try {
+                        final Bitmap bm = Extractor.bitmap(in.thumb, in.thumbReferer);
+                        if (bm != null) {
+                            THUMBS.put(in.thumb, bm);
+                            runOnUiThread(() -> { iv.setImageBitmap(bm); iv.animate().alpha(1f).setDuration(250).start(); });
+                        }
+                    } catch (Exception ignored) { }
+                }).start();
+                iv.animate().alpha(1f).setDuration(1).start();
+            }
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(-1, dp(180));
+            head.addView(iv, ip);
         }
         TextView title = text(in.title.isEmpty() ? in.url : in.title, 16, TXT, true);
         title.setPadding(0, dp(12), 0, 0);
         title.setTextIsSelectable(true);
-        box.addView(title);
+        head.addView(title);
 
         StringBuilder sub = new StringBuilder(in.site);
-        if (!in.uploader.isEmpty()) sub.append(" · ").append(in.uploader);
+        if (!in.uploader.isEmpty() && !in.uploader.equals(in.site)) sub.append(" · ").append(in.uploader);
         if (in.duration > 0) sub.append(" · ").append(clock(in.duration / 1000));
         TextView st = text(sub.toString(), 12, SUB, false);
         st.setPadding(0, dp(3), 0, 0);
-        box.addView(st);
+        head.addView(st);
 
         if (!in.desc.isEmpty()) {
             final TextView ds = text(in.desc, 12, SUB, false);
             ds.setMaxLines(3);
             ds.setEllipsize(android.text.TextUtils.TruncateAt.END);
             ds.setPadding(0, dp(8), 0, 0);
-            ds.setOnClickListener(v -> { boolean open = ds.getMaxLines() > 3; ds.setMaxLines(open ? 3 : 500); });
-            box.addView(ds);
+            ds.setOnClickListener(v -> ds.setMaxLines(ds.getMaxLines() > 3 ? 3 : 500));
+            head.addView(ds);
         }
+        head.setAlpha(0.2f);
+        head.animate().alpha(1f).setDuration(220).start();
+    }
 
+    private TextView link(String label, int color, View.OnClickListener l) {
+        TextView t = text(label, 12, color, true);
+        t.setPadding(0, dp(6), dp(14), dp(2));
+        t.setOnClickListener(l);
+        return t;
+    }
+
+    private void fillBody(LinearLayout body, final AlertDialog dlg, final Extractor.Info in) {
+        body.removeAllViews();
         if (!in.note.isEmpty()) {
             TextView n = text(in.note, 12, in.fmts.isEmpty() ? BAD : WARN, false);
-            n.setPadding(0, dp(10), 0, 0);
-            box.addView(n);
+            n.setPadding(0, dp(12), 0, 0);
+            body.addView(n);
         }
 
         if (!in.fmts.isEmpty()) {
             TextView hd = text("Available downloads · " + in.fmts.size(), 13, SUB, true);
-            hd.setPadding(0, dp(14), 0, dp(4));
-            box.addView(hd);
+            hd.setPadding(0, dp(14), 0, dp(6));
+            body.addView(hd);
+            int idx = 0;
             for (final Extractor.Fmt f : in.fmts) {
                 LinearLayout row = new LinearLayout(this);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(12), dp(10), dp(8), dp(10));
+                row.setPadding(dp(12), dp(10), dp(10), dp(8));
                 row.setBackground(rect(FIELD, 12, LINE));
                 LinearLayout tx = new LinearLayout(this);
                 tx.setOrientation(LinearLayout.VERTICAL);
                 tx.addView(text(f.label, 14, TXT, true));
                 tx.addView(text(f.detail, 12, SUB, false));
+                LinearLayout links = new LinearLayout(this);
+                if (previewable(f.mime, f.ext)) links.addView(link("▶ Preview", PRIMARY, v -> openPreview(f.url, f.headers, f.mime, f.name)));
+                links.addView(link("Copy URL", SUB, v -> copy("Direct URL", f.url)));
+                tx.addView(links);
                 row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-                LinearLayout act2 = new LinearLayout(this);
-                act2.setOrientation(LinearLayout.VERTICAL);
-                act2.setGravity(Gravity.CENTER_HORIZONTAL);
-                act2.addView(pill("Download", PRIMARY, true, v -> {
+                row.addView(pill("Download", PRIMARY, true, v -> {
                     dlg.dismiss();
                     startDownload(f.url, f.headers, f.name, f.mime, f.audioUrl, f.audioHeaders);
                 }));
-                act2.addView(pill("Copy URL", SUB, false, v -> copy("Direct URL", f.url)));
-                row.addView(act2);
                 LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
                 rp.bottomMargin = dp(6);
-                box.addView(row, rp);
+                body.addView(row, rp);
+                row.setAlpha(0f);
+                row.setTranslationY(dp(10));
+                row.animate().alpha(1f).translationY(0f).setStartDelay(Math.min(idx, 10) * 35L).setDuration(220).start();
+                idx++;
             }
         }
 
@@ -674,7 +833,7 @@ public class MainActivity extends Activity {
         copies.addView(pill("Copy link", SUB, false, v -> copy("Link", in.url)));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
         cp.topMargin = dp(8);
-        box.addView(copies, cp);
+        body.addView(copies, cp);
 
         LinearLayout foot = new LinearLayout(this);
         foot.setGravity(Gravity.END);
@@ -686,7 +845,19 @@ public class MainActivity extends Activity {
             }));
         }
         foot.addView(pill("Close", PRIMARY, true, v -> dlg.dismiss()));
-        box.addView(foot, new LinearLayout.LayoutParams(-1, -2));
+        body.addView(foot, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    static boolean previewable(String mime, String ext) {
+        String m = mime == null ? "" : mime.toLowerCase(Locale.US);
+        String e = ext == null ? "" : ext.toLowerCase(Locale.US);
+        return m.startsWith("video/") || m.startsWith("audio/") || m.startsWith("image/") || m.startsWith("text/")
+                || e.matches("mp4|m4v|webm|mkv|mov|3gp|mp3|m4a|aac|ogg|opus|wav|flac|jpg|jpeg|png|gif|webp|bmp|txt|log|md|json|csv|xml");
+    }
+
+    private void openPreview(String uri, String headers, String mime, String title) {
+        startActivity(new Intent(this, PreviewActivity.class).putExtra("uri", uri).putExtra("headers", headers == null ? "" : headers)
+                .putExtra("mime", mime == null ? "" : mime).putExtra("title", title == null ? "" : title));
     }
 
     private void copy(String what, String text) {
@@ -709,6 +880,101 @@ public class MainActivity extends Activity {
             if (!f.audioUrl.isEmpty()) b.append("  audio: ").append(f.audioUrl).append('\n');
         }
         return b.toString();
+    }
+
+    // ---------------------------------------------------------------- batch and advanced options
+
+    private EditText field(String hint, boolean multi) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setHintTextColor(SUB);
+        e.setTextColor(TXT);
+        e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        e.setBackground(rect(FIELD, 10, LINE));
+        e.setPadding(dp(12), dp(9), dp(12), dp(9));
+        if (multi) { e.setMinLines(3); e.setGravity(Gravity.TOP); e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE); }
+        else e.setSingleLine(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(6);
+        e.setLayoutParams(lp);
+        return e;
+    }
+
+    private static String txt(EditText e) {
+        return e == null ? "" : e.getText().toString().trim();
+    }
+
+    private String advancedHeaders() {
+        StringBuilder b = new StringBuilder();
+        if (!txt(fRef).isEmpty()) b.append("Referer: ").append(txt(fRef)).append('\n');
+        if (!txt(fCookie).isEmpty()) b.append("Cookie: ").append(txt(fCookie)).append('\n');
+        if (!txt(fUa).isEmpty()) b.append("User-Agent: ").append(txt(fUa)).append('\n');
+        for (String line : txt(fHeaders).split("\n")) if (line.contains(":")) b.append(line.trim()).append('\n');
+        if (!txt(fUser).isEmpty()) {
+            String cred = txt(fUser) + ":" + fPass.getText().toString();
+            b.append("Authorization: Basic ").append(android.util.Base64.encodeToString(cred.getBytes(), android.util.Base64.NO_WRAP)).append('\n');
+        }
+        return b.toString();
+    }
+
+    private static java.util.List<String> expand(String s) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        Matcher m = Pattern.compile("\\[(\\d+)-(\\d+)\\]").matcher(s);
+        if (m.find()) {
+            int w = m.group(1).length();
+            long a = Long.parseLong(m.group(1)), b = Long.parseLong(m.group(2));
+            if (b - a > 2000) b = a + 2000;
+            for (long i = a; i <= b; i++) {
+                out.addAll(expand(s.substring(0, m.start()) + String.format(Locale.US, "%0" + w + "d", i) + s.substring(m.end())));
+            }
+            return out;
+        }
+        m = Pattern.compile("\\[([a-z])-([a-z])\\]").matcher(s);
+        if (m.find()) {
+            for (char c = m.group(1).charAt(0); c <= m.group(2).charAt(0); c++) {
+                out.addAll(expand(s.substring(0, m.start()) + c + s.substring(m.end())));
+            }
+            return out;
+        }
+        out.add(s);
+        return out;
+    }
+
+    private void showBatch() {
+        final EditText e = field("One address per line", true);
+        e.setMinLines(7);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(8), dp(18), 0);
+        TextView hint = text("Paste many links, one per line. Patterns work too:\nhttp://site.com/photo[001-020].jpg  or  file[a-e].zip", 12, SUB, false);
+        box.addView(hint);
+        box.addView(e);
+        new AlertDialog.Builder(this).setTitle("Batch download").setView(box)
+                .setPositiveButton("Download all", (d, w) -> {
+                    int n = 0;
+                    for (String line : e.getText().toString().split("\n")) {
+                        String u = firstUrl(line.trim());
+                        if (u == null) continue;
+                        for (String x : expand(u)) { enqueue(x, "", null, "", ""); n++; }
+                    }
+                    toast(n == 0 ? "No links found" : n + " downloads added");
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void more(final Item it) {
+        final String[] names = {"Share file", "Copy link", "Download again", "Delete…"};
+        new AlertDialog.Builder(this).setTitle(it.name).setItems(names, (d, which) -> {
+            if (which == 0) {
+                try {
+                    Intent s = new Intent(Intent.ACTION_SEND).setType(it.mime).putExtra(Intent.EXTRA_STREAM, Uri.parse(it.uri))
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(s, "Share file"));
+                } catch (Exception e) { toast("The file is no longer in Downloads"); }
+            } else if (which == 1) copy("Link", it.url);
+            else if (which == 2) { enqueue(it.url, it.headers, null, "", ""); toast("Download started"); }
+            else confirmDelete(it);
+        }).show();
     }
 
     private static String clock(long s) {
