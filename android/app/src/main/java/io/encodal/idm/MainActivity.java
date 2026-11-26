@@ -263,6 +263,10 @@ public class MainActivity extends Activity {
         fPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         adv.addView(fRef); adv.addView(fCookie); adv.addView(fUa); adv.addView(fHeaders); adv.addView(fUser); adv.addView(fPass);
         row2.addView(pill("Batch / pattern", PRIMARY, false, v -> showBatch()));
+        row2.addView(pill("Browse & grab", PRIMARY, false, v -> {
+            String u = firstUrl(urlField.getText().toString());
+            startActivity(new Intent(this, BrowserActivity.class).putExtra("url", u == null ? "" : u));
+        }));
         row2.addView(pill("Advanced ▾", SUB, false, v -> adv.setVisibility(adv.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)));
         lc.addView(row2, new LinearLayout.LayoutParams(-1, -2));
         lc.addView(adv, new LinearLayout.LayoutParams(-1, -2));
@@ -838,6 +842,10 @@ public class MainActivity extends Activity {
         LinearLayout foot = new LinearLayout(this);
         foot.setGravity(Gravity.END);
         foot.addView(pill("Copy all details", PRIMARY, false, v -> copy("Details", allDetails(in))));
+        foot.addView(pill("Browse & grab", PRIMARY, false, v -> {
+            dlg.dismiss();
+            startActivity(new Intent(this, BrowserActivity.class).putExtra("url", in.url));
+        }));
         if (in.fmts.isEmpty()) {
             foot.addView(pill("Sign in", WARN, false, v -> {
                 dlg.dismiss();

@@ -165,6 +165,7 @@ final class PyEngine {
                 if (!video && !audio) { video = !ext.matches("mp3|m4a|opus|ogg|wav|flac|aac"); audio = video; }
                 f.video = video;
                 f.audio = audio;
+                f.rank = has(vc) ? rankOf(vc) : 9;
                 String id = o.optString("id");
                 if (video) {
                     String q = h > 0 ? h + "p" : (w > 0 ? w + "px" : (o.optString("note").isEmpty() ? "Video" : o.optString("note")));
@@ -201,11 +202,15 @@ final class PyEngine {
                 v.audio = true;
             }
         }
-        Collections.sort(muxed, (x, y) -> Integer.compare(parseInt(y.name), parseInt(x.name)));
+        Collections.sort(muxed, (x, y) -> {
+            int c1 = Integer.compare(parseInt(y.name), parseInt(x.name));
+            return c1 != 0 ? c1 : Integer.compare(x.rank, y.rank);
+        });
         Collections.sort(vonly, (x, y) -> {
             int c1 = Integer.compare(y.audioUrl.isEmpty() ? 0 : 1, x.audioUrl.isEmpty() ? 0 : 1);
             if (c1 != 0) return c1;
-            return Integer.compare(parseInt(y.name), parseInt(x.name));
+            int c2 = Integer.compare(parseInt(y.name), parseInt(x.name));
+            return c2 != 0 ? c2 : Integer.compare(x.rank, y.rank);
         });
         Collections.sort(aonly, (x, y) -> Integer.compare(parseInt(y.name), parseInt(x.name)));
         in.fmts.addAll(muxed);
@@ -217,6 +222,17 @@ final class PyEngine {
             if (f.mime.isEmpty()) f.mime = (f.video ? "video/" : "audio/") + f.ext;
         }
         return in;
+    }
+
+    /** Lower is better supported on phones: H.264 plays everywhere, AV1 and H.265 often do not. */
+    private static int rankOf(String vc) {
+        String l = vc.toLowerCase(Locale.US);
+        if (l.startsWith("avc")) return 0;
+        if (l.startsWith("vp8")) return 1;
+        if (l.startsWith("vp09") || l.startsWith("vp9")) return 2;
+        if (l.startsWith("hev") || l.startsWith("hvc") || l.contains("265") || l.contains("bytevc1")) return 3;
+        if (l.startsWith("av01")) return 4;
+        return 5;
     }
 
     private static int parseInt(String s) {

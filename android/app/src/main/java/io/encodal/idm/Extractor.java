@@ -30,11 +30,13 @@ import java.util.regex.Pattern;
 /** Reads a link: direct files, web pages with video, TikTok and YouTube. Returns title, thumbnail and every downloadable quality. */
 final class Extractor {
     static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+    static final String GRAB_HINT = "Found by reading the page. If this is only a trailer or a preview, tap \"Browse & grab\", open the episode you want and press play: the app captures its real file.";
     private static final String YT_UA = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
 
     static final class Fmt {
         String label = "", detail = "", url = "", ext = "", mime = "", headers = "", name = "", audioUrl = "", audioHeaders = "";
         long size = -1;
+        int rank;
         boolean video, audio;
     }
 
@@ -300,6 +302,7 @@ final class Extractor {
             f.detail = f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size";
             f.name = fileName(in.title, f.ext);
         }
+        if (!in.fmts.isEmpty()) in.note = GRAB_HINT;
         if (in.fmts.isEmpty()) {
             in.note = playlist
                     ? "This page streams its video as a playlist (HLS), which the Android app cannot download yet."

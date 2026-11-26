@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 final class WebSniffer {
     private WebSniffer() { }
 
-    private static boolean media(String u) {
+    static boolean media(String u) {
         String l = u.toLowerCase(Locale.US);
         int q = l.indexOf('?');
         String path = q >= 0 ? l.substring(0, q) : l;
@@ -43,7 +43,7 @@ final class WebSniffer {
     }
 
     /** Remove byte-range parameters so a streamed piece becomes the whole file. */
-    private static String whole(String u) {
+    static String whole(String u) {
         int q = u.indexOf('?');
         if (q < 0) return u;
         StringBuilder b = new StringBuilder(u.substring(0, q));
@@ -192,7 +192,7 @@ final class WebSniffer {
         if (in.fmts.isEmpty()) {
             in.note = "No video could be found. If the post is private or the site asks you to log in, tap \"Sign in\", log in once, then try again.";
         } else {
-            in.note = "";
+            in.note = Extractor.GRAB_HINT;
         }
         return in;
     }

@@ -33,6 +33,7 @@ public class PreviewActivity extends Activity {
     private TextView message;
     private VideoView video;
     private String uri, mime, title;
+    private boolean cachedTry;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -135,6 +136,11 @@ public class PreviewActivity extends Activity {
             if (audio) say("♪");
         });
         video.setOnErrorListener((mp, what, extra) -> {
+            if (uri.startsWith("http") && !cachedTry) {
+                cachedTry = true;
+                cacheAndPlay(headers);
+                return true;
+            }
             say("This file cannot be played here (the format may not be supported by your phone, or the link expired).\nTap \"Open with…\" or download it first.");
             return true;
         });
@@ -144,6 +150,48 @@ public class PreviewActivity extends Activity {
         } catch (Exception e) {
             say("Cannot start the preview.");
         }
+    }
+
+    /** Some servers refuse to stream to the phone's player: fetch the file into the cache with the right headers and play that. */
+    private void cacheAndPlay(final String headers) {
+        spinner.setVisibility(View.VISIBLE);
+        message.setText("Loading preview…");
+        message.setVisibility(View.VISIBLE);
+        new Thread(() -> {
+            try {
+                final java.io.File f = new java.io.File(getCacheDir(), "preview.mp4");
+                final long chunk = 8L * 1024 * 1024, limit = 80L * 1024 * 1024;
+                long pos = 0, total = -1;
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                    while (total < 0 || pos < total) {
+                        java.net.HttpURLConnection c = Segmented.open(uri, pos, pos + chunk - 1, 8, headers);
+                        int code = c.getResponseCode();
+                        if (code != 206 && code != 200) throw new Exception("HTTP " + code);
+                        String cr = c.getHeaderField("Content-Range");
+                        if (cr != null && cr.contains("/")) {
+                            try { total = Long.parseLong(cr.substring(cr.indexOf('/') + 1).trim()); } catch (Exception ignored) { }
+                        } else if (code == 200) {
+                            total = c.getContentLengthLong();
+                        }
+                        if (total > limit) { c.disconnect(); runOnUiThread(() -> say("This file is too big to preview before downloading.\nDownload it, then preview it.")); return; }
+                        try (InputStream in = c.getInputStream()) {
+                            byte[] b = new byte[65536];
+                            int n;
+                            while ((n = in.read(b)) > 0) { out.write(b, 0, n); pos += n; }
+                        }
+                        c.disconnect();
+                        if (code == 200) break;
+                    }
+                }
+                runOnUiThread(() -> {
+                    message.setVisibility(View.GONE);
+                    video.stopPlayback();
+                    video.setVideoPath(f.getAbsolutePath());
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> say("This file cannot be previewed (" + e.getMessage() + ").\nTap \"Open with…\" or download it."));
+            }
+        }).start();
     }
 
     private void showImage(final String headers) {
