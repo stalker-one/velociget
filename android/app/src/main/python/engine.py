@@ -51,7 +51,10 @@ def probe(url, cookiefile=None, upd=None):
         for f in raw:
             u = f.get("url")
             proto = _s(f.get("protocol")) or "https"
-            if not u or proto not in ("http", "https"):
+            hls = proto in ("m3u8", "m3u8_native")
+            if not u or (proto not in ("http", "https") and not hls):
+                continue
+            if hls and _s(f.get("vcodec")) == "none":
                 continue
             headers = {}
             try:
@@ -72,6 +75,7 @@ def probe(url, cookiefile=None, upd=None):
                 "tbr": f.get("tbr") or 0,
                 "note": _s(f.get("format_note")),
                 "hd": headers,
+                "hls": hls,
             })
         return json.dumps({
             "title": _s(info.get("title")),

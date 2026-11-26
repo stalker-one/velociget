@@ -37,7 +37,7 @@ final class Extractor {
         String label = "", detail = "", url = "", ext = "", mime = "", headers = "", name = "", audioUrl = "", audioHeaders = "";
         long size = -1;
         int rank;
-        boolean video, audio;
+        boolean video, audio, hls;
     }
 
     static final class Info {
@@ -168,6 +168,11 @@ final class Extractor {
     }
 
     // ------------------------------------------------------------------ entry
+
+    static String getText(String url, String headers) throws Exception {
+        Resp r = fetch(url, headers, true, false, null, 3_000_000);
+        return r.body == null ? "" : new String(r.body, "UTF-8");
+    }
 
     /** Title, description and thumbnail only, in well under a second, so the dialog can show something while formats are still loading. */
     static Info quick(String url) throws Exception {
@@ -346,7 +351,16 @@ final class Extractor {
             if (k < 0) return false;
             int s = html.indexOf('>', k) + 1;
             int e = html.indexOf("</script>", s);
-            JSONObject root = new JSONObject(html.substring(s, e));
+            return tiktokJson(html.substring(s, e), in.url, page.cookie, in);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Reads TikTok's page data: videos, photo posts / slideshows (every image) and the sound. */
+    static boolean tiktokJson(String json, String pageUrl, String cookie, Info in) {
+        try {
+            JSONObject root = new JSONObject(json);
             JSONObject scope = root.optJSONObject("__DEFAULT_SCOPE__");
             if (scope == null) return false;
             JSONObject det = scope.optJSONObject("webapp.video-detail");
@@ -355,76 +369,116 @@ final class Extractor {
             JSONObject item = info == null ? null : info.optJSONObject("itemStruct");
             if (item == null) return false;
             JSONObject video = item.optJSONObject("video");
-            if (video == null) return false;
+            JSONObject post = item.optJSONObject("imagePost");
+            JSONArray imgs = post == null ? null : post.optJSONArray("images");
+            boolean photos = imgs != null && imgs.length() > 0;
+            if (video == null && !photos) return false;
 
             String desc = item.optString("desc", "");
-            in.title = desc.isEmpty() ? "TikTok video" : desc;
+            in.title = desc.isEmpty() ? (photos ? "TikTok photos" : "TikTok video") : desc;
             in.desc = "";
             JSONObject au = item.optJSONObject("author");
             if (au != null) in.uploader = au.optString("nickname") + (au.optString("uniqueId").isEmpty() ? "" : " (@" + au.optString("uniqueId") + ")");
-            in.thumb = first(video.optString("cover"), video.optString("originCover"), in.thumb);
-            in.duration = video.optLong("duration", 0);
             in.thumbReferer = "https://www.tiktok.com/";
+            if (video != null) {
+                in.thumb = first(video.optString("cover"), video.optString("originCover"), in.thumb);
+                in.duration = video.optLong("duration", 0);
+            }
 
-            String hdr = "Referer: https://www.tiktok.com/" + (page.cookie.isEmpty() ? "" : "\nCookie: " + page.cookie);
+            String hdr = "Referer: https://www.tiktok.com/" + (cookie == null || cookie.isEmpty() ? "" : "\nCookie: " + cookie);
             Set<String> seen = new LinkedHashSet<>();
             final List<Fmt> list = new ArrayList<>();
-            JSONArray br = video.optJSONArray("bitrateInfo");
-            if (br != null) {
-                for (int i = 0; i < br.length(); i++) {
-                    JSONObject b = br.optJSONObject(i);
-                    if (b == null) continue;
-                    JSONObject pa = b.optJSONObject("PlayAddr");
-                    if (pa == null) continue;
-                    JSONArray ul = pa.optJSONArray("UrlList");
+            if (photos) {
+                for (int i = 0; i < imgs.length(); i++) {
+                    JSONObject im = imgs.optJSONObject(i);
+                    JSONObject iu = im == null ? null : im.optJSONObject("imageURL");
+                    JSONArray ul = iu == null ? null : iu.optJSONArray("urlList");
                     if (ul == null || ul.length() == 0) continue;
                     String u = ul.optString(0);
                     if (u.isEmpty() || !seen.add(u)) continue;
                     Fmt f = new Fmt();
                     f.url = u;
                     f.headers = hdr;
-                    f.video = true;
-                    f.audio = true;
-                    f.ext = "mp4";
-                    f.size = pa.optLong("DataSize", -1);
-                    int w = pa.optInt("Width"), hh = pa.optInt("Height");
-                    String codec = b.optString("CodecType", "").toLowerCase(Locale.US);
-                    String cn = codec.contains("264") ? "H.264" : (codec.contains("265") || codec.contains("bytevc1")) ? "H.265" : codec.toUpperCase(Locale.US);
-                    f.label = (w > 0 ? w + "×" + hh : b.optString("GearName", "Video")) + (cn.isEmpty() ? "" : " · " + cn);
-                    f.name = String.valueOf(Math.max(w, hh));
+                    f.ext = u.toLowerCase(Locale.US).contains(".png") ? "png" : u.toLowerCase(Locale.US).contains(".webp") ? "webp" : "jpeg";
+                    f.mime = "image/" + (f.ext.equals("jpeg") ? "jpeg" : f.ext);
+                    f.label = "Image " + (list.size() + 1);
+                    f.name = fileName(in.title + " " + (list.size() + 1), f.ext.equals("jpeg") ? "jpg" : f.ext);
+                    f.rank = 1000 - list.size();
+                    list.add(f);
+                }
+                if (!list.isEmpty() && in.thumb.isEmpty()) in.thumb = list.get(0).url;
+            }
+            if (video != null) {
+                JSONArray br = video.optJSONArray("bitrateInfo");
+                if (br != null) {
+                    for (int i = 0; i < br.length(); i++) {
+                        JSONObject b = br.optJSONObject(i);
+                        if (b == null) continue;
+                        JSONObject pa = b.optJSONObject("PlayAddr");
+                        if (pa == null) continue;
+                        JSONArray ul = pa.optJSONArray("UrlList");
+                        if (ul == null || ul.length() == 0) continue;
+                        String u = ul.optString(0);
+                        if (u.isEmpty() || !seen.add(u)) continue;
+                        Fmt f = new Fmt();
+                        f.url = u;
+                        f.headers = hdr;
+                        f.video = true;
+                        f.audio = true;
+                        f.ext = "mp4";
+                        f.size = pa.optLong("DataSize", -1);
+                        int w = pa.optInt("Width"), hh = pa.optInt("Height");
+                        String codec = b.optString("CodecType", "").toLowerCase(Locale.US);
+                        String cn = codec.contains("264") ? "H.264" : (codec.contains("265") || codec.contains("bytevc1")) ? "H.265" : codec.toUpperCase(Locale.US);
+                        f.label = (w > 0 ? w + "×" + hh : b.optString("GearName", "Video")) + (cn.isEmpty() ? "" : " · " + cn);
+                        f.rank = Math.max(w, hh);
+                        list.add(f);
+                    }
+                }
+                String pu = video.optString("playAddr", "");
+                if (!pu.isEmpty() && seen.add(pu)) {
+                    Fmt f = new Fmt();
+                    f.url = pu; f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4";
+                    f.label = video.optInt("width") > 0 ? video.optInt("width") + "×" + video.optInt("height") : "Original";
+                    list.add(f);
+                }
+                String du = video.optString("downloadAddr", "");
+                if (!du.isEmpty() && seen.add(du)) {
+                    Fmt f = new Fmt();
+                    f.url = du; f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4";
+                    f.label = "With TikTok watermark";
+                    f.rank = -1;
                     list.add(f);
                 }
             }
-            String pu = video.optString("playAddr", "");
-            if (!pu.isEmpty() && seen.add(pu)) {
+            JSONObject music = item.optJSONObject("music");
+            String mu = music == null ? "" : music.optString("playUrl", "");
+            if (!mu.isEmpty() && seen.add(mu)) {
                 Fmt f = new Fmt();
-                f.url = pu; f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4";
-                f.label = video.optInt("width") > 0 ? video.optInt("width") + "×" + video.optInt("height") : "Original";
-                f.name = "0";
-                list.add(f);
-            }
-            String du = video.optString("downloadAddr", "");
-            if (!du.isEmpty() && seen.add(du)) {
-                Fmt f = new Fmt();
-                f.url = du; f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4";
-                f.label = "With TikTok watermark";
-                f.name = "-1";
+                f.url = mu; f.headers = hdr; f.audio = true; f.ext = "mp3"; f.mime = "audio/mpeg";
+                String mt = music.optString("title", "sound");
+                f.label = "Sound · " + mt;
+                f.name = fileName(mt, "mp3");
+                f.rank = -2;
                 list.add(f);
             }
             if (list.isEmpty()) return false;
 
-            long[] sizeHint = new long[list.size()];
-            for (int i = 0; i < list.size(); i++) sizeHint[i] = list.get(i).size;
             probeAll(list);
             if (list.isEmpty()) {
                 in.note = "TikTok did not allow the download right now. Try again in a moment.";
                 return true;
             }
-            Collections.sort(list, (a, b) -> Integer.compare(parse(b.name), parse(a.name)));
+            Collections.sort(list, (a, b) -> Integer.compare(b.rank, a.rank));
             for (Fmt f : list) {
-                f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + " · video + audio";
-                f.name = fileName(in.title, "mp4");
-                f.mime = "video/mp4";
+                boolean img = f.mime.startsWith("image/");
+                boolean snd = f.rank == -2;
+                String kind = img ? "image" : snd ? "audio only" : "video + audio";
+                f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + " · " + kind;
+                if (!img && !snd) {
+                    f.name = fileName(in.title, "mp4");
+                    f.mime = "video/mp4";
+                }
             }
             in.fmts.addAll(list);
             return true;

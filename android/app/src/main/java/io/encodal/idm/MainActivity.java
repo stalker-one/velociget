@@ -554,7 +554,11 @@ public class MainActivity extends Activity {
     }
 
     private void startDownload(String url, String headers, String name, String mime, String audio, String audioHeaders) {
-        enqueue(url, headers, name, audio, audioHeaders);
+        startDownload(url, headers, name, mime, audio, audioHeaders, false);
+    }
+
+    private void startDownload(String url, String headers, String name, String mime, String audio, String audioHeaders, boolean hls) {
+        enqueue(url, headers, name, audio, audioHeaders, hls);
         urlField.setText("");
         lastClip = url;
         banner.setVisibility(View.GONE);
@@ -562,12 +566,17 @@ public class MainActivity extends Activity {
     }
 
     private void enqueue(String url, String headers, String name, String audio, String audioHeaders) {
+        enqueue(url, headers, name, audio, audioHeaders, false);
+    }
+
+    private void enqueue(String url, String headers, String name, String audio, String audioHeaders, boolean hls) {
         headers = (headers == null ? "" : headers) + advancedHeaders();
         Intent s = new Intent(this, DownloadService.class).setAction(DownloadService.ADD)
                 .putExtra("url", url).putExtra("connections", conns);
         if (headers != null && !headers.isEmpty()) s.putExtra("headers", headers);
         if (name != null && !name.isEmpty()) s.putExtra("name", name);
         if (audio != null && !audio.isEmpty()) s.putExtra("audio", audio).putExtra("audioHeaders", audioHeaders);
+        if (hls) s.putExtra("hls", true);
         startForegroundService(s);
     }
 
@@ -797,6 +806,20 @@ public class MainActivity extends Activity {
             body.addView(n);
         }
 
+        int imgs = 0;
+        for (Extractor.Fmt f : in.fmts) if (f.mime.startsWith("image/")) imgs++;
+        if (imgs >= 2) {
+            final int total = imgs;
+            TextView all = pill("Download all " + total + " images", PRIMARY, true, v -> {
+                dlg.dismiss();
+                for (Extractor.Fmt f : in.fmts) if (f.mime.startsWith("image/")) enqueue(f.url, f.headers, f.name, "", "");
+                toast(total + " images added");
+            });
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2);
+            ap.topMargin = dp(12);
+            body.addView(all, ap);
+        }
+
         if (!in.fmts.isEmpty()) {
             TextView hd = text("Available downloads · " + in.fmts.size(), 13, SUB, true);
             hd.setPadding(0, dp(14), 0, dp(6));
@@ -812,13 +835,13 @@ public class MainActivity extends Activity {
                 tx.addView(text(f.label, 14, TXT, true));
                 tx.addView(text(f.detail, 12, SUB, false));
                 LinearLayout links = new LinearLayout(this);
-                if (previewable(f.mime, f.ext)) links.addView(link("▶ Preview", PRIMARY, v -> openPreview(f.url, f.headers, f.mime, f.name)));
+                if (!f.hls && previewable(f.mime, f.ext)) links.addView(link("▶ Preview", PRIMARY, v -> openPreview(f.url, f.headers, f.mime, f.name)));
                 links.addView(link("Copy URL", SUB, v -> copy("Direct URL", f.url)));
                 tx.addView(links);
                 row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
                 row.addView(pill("Download", PRIMARY, true, v -> {
                     dlg.dismiss();
-                    startDownload(f.url, f.headers, f.name, f.mime, f.audioUrl, f.audioHeaders);
+                    startDownload(f.url, f.headers, f.name, f.mime, f.audioUrl, f.audioHeaders, f.hls);
                 }));
                 LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
                 rp.bottomMargin = dp(6);

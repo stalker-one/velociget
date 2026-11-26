@@ -46,6 +46,7 @@ public class DownloadService extends Service {
             it.connections = intent.getIntExtra("connections", Prefs.conns(this));
             if (intent.getStringExtra("headers") != null) it.headers = intent.getStringExtra("headers");
             if (intent.getStringExtra("name") != null) it.name = intent.getStringExtra("name");
+            it.hls = intent.getBooleanExtra("hls", false);
             if (intent.getStringExtra("audio") != null) it.audioUrl = intent.getStringExtra("audio");
             if (intent.getStringExtra("audioHeaders") != null) it.audioHeaders = intent.getStringExtra("audioHeaders");
             ITEMS.add(0, it);
@@ -104,7 +105,7 @@ public class DownloadService extends Service {
                 try { Thread.sleep(400); } catch (InterruptedException ignored) { }
             }
             try {
-                Segmented.run(app, it);
+                if (it.hls) HlsDownloader.run(app, it); else Segmented.run(app, it);
             } finally {
                 SLOTS.decrementAndGet();
             }

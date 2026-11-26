@@ -89,12 +89,19 @@ final class WebSniffer {
                 s.setDomStorageEnabled(true);
                 s.setMediaPlaybackRequiresUserGesture(false);
                 s.setUseWideViewPort(true);
+                if (url.contains("tiktok.com")) s.setUserAgentString(Extractor.UA);
                 ua[0] = s.getUserAgentString();
                 CookieManager.getInstance().setAcceptCookie(true);
                 CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
                 wv.setAlpha(0f);
                 ((ViewGroup) act.getWindow().getDecorView()).addView(wv, new FrameLayout.LayoutParams(320, 480));
                 wv.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                        String l = r.getUrl().toString().toLowerCase(Locale.US);
+                        return !(l.startsWith("http://") || l.startsWith("https://") || l.startsWith("about:") || l.startsWith("data:"));
+                    }
+
                     @Override
                     public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                         String u = r.getUrl().toString();
@@ -146,6 +153,12 @@ final class WebSniffer {
                 if (in.desc.isEmpty()) in.desc = j.optString("d");
                 if (in.thumb.isEmpty()) in.thumb = j.optString("i");
                 in.thumbReferer = page[0];
+                String tt = j.optString("tt");
+                if (!tt.isEmpty()) {
+                    String ck = CookieManager.getInstance().getCookie(page[0]);
+                    in.fmts.clear();
+                    if (Extractor.tiktokJson(tt, page[0], ck == null ? "" : ck, in) && !in.fmts.isEmpty()) return in;
+                }
                 JSONArray a = j.optJSONArray("u");
                 if (a != null) {
                     for (int i = 0; i < a.length(); i++) {

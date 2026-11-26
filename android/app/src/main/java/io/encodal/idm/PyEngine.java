@@ -147,10 +147,30 @@ final class PyEngine {
 
         final List<Extractor.Fmt> muxed = new ArrayList<>(), vonly = new ArrayList<>(), aonly = new ArrayList<>();
         final List<Double> abrOf = new ArrayList<>();
+        final List<Extractor.Fmt> hlsRows = new ArrayList<>();
         JSONArray fa = j.optJSONArray("fmts");
         if (fa != null) {
             for (int i = 0; i < fa.length(); i++) {
                 JSONObject o = fa.getJSONObject(i);
+                if (o.optBoolean("hls")) {
+                    int hh = o.optInt("h");
+                    Extractor.Fmt f = new Extractor.Fmt();
+                    f.url = o.optString("url");
+                    f.headers = headerText(o.optJSONObject("hd"));
+                    f.hls = true;
+                    f.ext = "mp4";
+                    f.mime = "video/mp4";
+                    f.video = true;
+                    f.audio = true;
+                    f.rank = 5;
+                    long tb = (long) (o.optDouble("tbr", 0) * 1000 / 8 * (j.optDouble("dur", 0)));
+                    f.size = tb > 0 ? tb : -1;
+                    f.label = (hh > 0 ? hh + "p" : "Stream") + " · HLS";
+                    f.detail = (tb > 0 ? "~" + MainActivity.sizeText(tb) + " · " : "") + "stream, saved as MP4";
+                    f.name = String.valueOf(hh);
+                    hlsRows.add(f);
+                    continue;
+                }
                 String vc = o.optString("vc"), ac = o.optString("ac"), ext = o.optString("ext", "mp4");
                 int h = o.optInt("h"), w = o.optInt("w");
                 long size = o.optLong("fs", 0);
@@ -185,6 +205,8 @@ final class PyEngine {
                 }
             }
         }
+
+        if (muxed.isEmpty() && vonly.isEmpty()) muxed.addAll(hlsRows);
 
         // video-only rows get the best matching sound track merged in on the phone
         for (Extractor.Fmt v : vonly) {

@@ -18,6 +18,7 @@ final class Item {
     volatile String error = "";
     volatile int connections = 8;
     volatile boolean resumable;
+    volatile boolean hls;
     volatile String uri = "";
     volatile String audioUrl = "";
     volatile String audioHeaders = "";
@@ -58,7 +59,7 @@ final class Item {
         try {
             JSONObject o = new JSONObject();
             o.put("id", id).put("url", url).put("name", name).put("mime", mime).put("total", total)
-                    .put("state", state).put("error", error).put("conns", connections).put("resumable", resumable)
+                    .put("state", state).put("error", error).put("conns", connections).put("resumable", resumable).put("hls", hls)
                     .put("uri", uri).put("headers", headers).put("audioUrl", audioUrl).put("audioHeaders", audioHeaders).put("created", created).put("finished", finishedAt);
             if (segStart != null && segPos != null) {
                 JSONArray a = new JSONArray(), b = new JSONArray(), c = new JSONArray();
@@ -81,6 +82,7 @@ final class Item {
             it.error = o.optString("error");
             it.connections = o.optInt("conns", 8);
             it.resumable = o.optBoolean("resumable");
+            it.hls = o.optBoolean("hls");
             it.uri = o.optString("uri");
             it.headers = o.optString("headers");
             it.audioUrl = o.optString("audioUrl");

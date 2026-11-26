@@ -47,6 +47,7 @@ final class Resolver {
         final Future<Extractor.Info> py = INNER.submit(() -> PyEngine.probe(act, url));
         final Future<Extractor.Info> st = INNER.submit(() -> Extractor.resolve(url));
         final boolean yt = youtube(url);
+        final boolean tt = url.toLowerCase(Locale.US).contains("tiktok.com");
         final long t0 = System.currentTimeMillis();
         Extractor.Info pyRes = null, stRes = null;
         Exception pyErr = null, stErr = null;
@@ -57,13 +58,15 @@ final class Resolver {
             if (!pyDone && py.isDone()) {
                 pyDone = true;
                 try { pyRes = py.get(); } catch (Exception e) { pyErr = e; }
-                if (pyRes != null && !pyRes.fmts.isEmpty()) { st.cancel(true); return pyRes; }
+                if (pyRes != null && !pyRes.fmts.isEmpty() && !tt) { st.cancel(true); return pyRes; }
             }
             if (!stDone && st.isDone()) {
                 stDone = true;
                 stAt = now;
                 try { stRes = st.get(); } catch (Exception e) { stErr = e; }
             }
+            if (tt && pyDone && !stDone && pyRes != null && !pyRes.fmts.isEmpty() && now - t0 > 9000) return pyRes;
+            if (tt && pyDone && stDone && (stRes == null || stRes.fmts.isEmpty()) && pyRes != null && !pyRes.fmts.isEmpty()) return pyRes;
             if (stRes != null && stRes.direct) { py.cancel(true); return stRes; }
             if (stRes != null && !stRes.fmts.isEmpty()) {
                 // the built-in answer is good enough once yt-dlp had a short head start (YouTube: let yt-dlp finish, it lists more qualities)

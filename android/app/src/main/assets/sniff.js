@@ -13,5 +13,6 @@
     var e = document.querySelector('meta[property="' + p + '"],meta[name="' + p + '"]');
     return e ? e.content : '';
   }
-  return JSON.stringify({ t: mt('og:title') || document.title, d: mt('og:description') || mt('description'), i: mt('og:image'), u: out });
+  var tte = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+  return JSON.stringify({ t: mt('og:title') || document.title, d: mt('og:description') || mt('description'), i: mt('og:image'), u: out, tt: tte ? tte.textContent : '' });
 })()
