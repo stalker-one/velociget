@@ -107,7 +107,7 @@ public class MainActivity extends Activity {
         LINE = dark ? 0xFF22304A : 0xFFE2E8F0;
         FIELD = dark ? 0xFF0E1626 : 0xFFF8FAFC;
         getWindow().setStatusBarColor(0xFF1D4ED8);
-        getWindow().setNavigationBarColor(BG);
+        getWindow().setNavigationBarColor(CARD);
 
         Store.load(this, DownloadService.ITEMS);
         PyEngine.warm(this);
@@ -185,21 +185,6 @@ public class MainActivity extends Activity {
         titles.addView(t);
         titles.addView(st);
         head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        TextView yt = text("▶", 13, Color.WHITE, true);
-        yt.setGravity(Gravity.CENTER);
-        yt.setBackground(rect(0xFFFF0000, 8, 0));
-        yt.setOnClickListener(v -> startActivity(new Intent(this, YouTubeActivity.class)));
-        LinearLayout.LayoutParams ylp = new LinearLayout.LayoutParams(dp(34), dp(24));
-        ylp.setMargins(0, 0, dp(6), 0);
-        head.addView(yt, ylp);
-        TextView files = text("📁", 20, Color.WHITE, false);
-        files.setPadding(dp(8), dp(2), dp(4), dp(2));
-        files.setOnClickListener(v -> startActivity(new Intent(this, FilesActivity.class)));
-        head.addView(files);
-        TextView gear = text("⚙", 22, Color.WHITE, false);
-        gear.setPadding(dp(8), dp(2), dp(14), dp(2));
-        gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-        head.addView(gear);
         totalSpeed = text("0 B/s", 15, Color.WHITE, true);
         totalSpeed.setPadding(dp(12), dp(6), dp(12), dp(6));
         totalSpeed.setBackground(rect(0x33FFFFFF, 20, 0));
@@ -213,6 +198,7 @@ public class MainActivity extends Activity {
         body.setPadding(dp(14), dp(14), dp(14), dp(24));
         sv.addView(body, new ViewGroup.LayoutParams(-1, -2));
         root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(Nav.bar(this, Nav.HOME));
 
         // link card
         LinearLayout lc = card();

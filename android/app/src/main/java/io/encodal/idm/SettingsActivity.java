@@ -41,7 +41,7 @@ public class SettingsActivity extends Activity {
         LINE = dark ? 0xFF22304A : 0xFFE2E8F0;
         FIELD = dark ? 0xFF0E1626 : 0xFFF8FAFC;
         getWindow().setStatusBarColor(0xFF1D4ED8);
-        getWindow().setNavigationBarColor(BG);
+        getWindow().setNavigationBarColor(CARD);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -64,6 +64,24 @@ public class SettingsActivity extends Activity {
         body.setPadding(dp(14), dp(14), dp(14), dp(28));
         sv.addView(body, new ViewGroup.LayoutParams(-1, -2));
         root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(Nav.bar(this, Nav.MORE));
+
+        // app update
+        LinearLayout up = section(body, "App update");
+        String vn = "";
+        try { vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
+        TextView upt = text("Installed version " + vn + ". Check for a newer version and install it from here.", 12, SUB, false);
+        upt.setPadding(0, dp(4), 0, dp(8));
+        up.addView(upt);
+        up.addView(button("Check for updates", v -> startActivity(new Intent(this, UpdateActivity.class))));
+        LinearLayout perm = section(body, "Storage access");
+        TextView pt = text("Give the app All files access to browse every folder and show hidden files in Files → Folders.", 12, SUB, false);
+        pt.setPadding(0, dp(4), 0, dp(8));
+        perm.addView(pt);
+        perm.addView(button("Open access settings", v -> {
+            try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName()))); }
+            catch (Exception e) { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
+        }));
 
         // downloads
         LinearLayout d = section(body, "Downloads");

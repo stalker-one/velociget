@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="IDM By Encodal"
@@ -52,10 +58,19 @@
         <activity
             android:name=".PreviewActivity"
             android:exported="false"
+            android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode" />
 
         <activity
             android:name=".FilesActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".DeviceFilesActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".UpdateActivity"
             android:exported="false" />
 
         <activity

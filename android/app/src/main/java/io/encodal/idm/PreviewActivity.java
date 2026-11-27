@@ -7,7 +7,11 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -25,7 +29,7 @@ import android.view.WindowManager;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.VideoView;
+import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -38,7 +42,28 @@ public class PreviewActivity extends Activity {
     private FrameLayout stage;
     private ProgressBar spinner;
     private TextView message;
-    private VideoView video;
+    private PlayerView video;
+    private boolean webMode, inPip, bgOn, audioOnly;
+    private BroadcastReceiver rx;
+
+    private void startBg() {
+        if (bgOn) return;
+        bgOn = true;
+        BgPlayService.target = PreviewActivity.class;
+        rx = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                if (BgPlayService.CLOSE.equals(i.getAction())) { finish(); return; }
+                if (video != null) { if (video.isPlaying()) video.pause(); else video.start(); }
+                BgPlayService.refresh(PreviewActivity.this, title == null ? "Playing" : title, video != null && video.isPlaying());
+            }
+        };
+        IntentFilter f = new IntentFilter();
+        f.addAction(BgPlayService.TOGGLE);
+        f.addAction(BgPlayService.CLOSE);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(rx, f);
+        BgPlayService.start(this);
+        BgPlayService.refresh(this, title == null ? "Playing" : title, true);
+    }
     private String uri, mime, title;
     private boolean cachedTry;
     private java.util.ArrayList<String> plUris, plNames, plMimes;
@@ -567,6 +592,9 @@ public class PreviewActivity extends Activity {
     @Override
     protected void onDestroy() {
         progress.removeCallbacksAndMessages(null);
+        if (video != null) video.stopPlayback();
+        if (webView != null) { try { webView.destroy(); } catch (Exception ignored) { } }
+        if (bgOn) { try { unregisterReceiver(rx); } catch (Exception ignored) { } BgPlayService.stop(this); }
         super.onDestroy();
     }
 
@@ -588,7 +616,8 @@ public class PreviewActivity extends Activity {
     }
 
     private void playMedia(String headers, boolean audio) {
-        video = new VideoView(this);
+        audioOnly = audio;
+        video = new PlayerView(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
         stage.addView(video, 0, lp);
         attachControls(audio);
@@ -599,6 +628,7 @@ public class PreviewActivity extends Activity {
             try { mp.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
             if (speed != 1f) setSpeed(speed);
             video.start();
+            startBg();
             progress.removeCallbacks(tick);
             progress.post(tick);
             if (audio) say("♪");
@@ -610,8 +640,13 @@ public class PreviewActivity extends Activity {
                 cacheAndPlay(headers);
                 return true;
             }
-            say("This file cannot be played here (the format may not be supported by your phone, or the link expired).\nTap \"Open with…\" or download it first.");
+            webFallback(headers);
             return true;
+        });
+        video.setOnInfoListener((mp, what, extra) -> {
+            // 860 / 862: the phone cannot decode the picture / the sound of this file (VP9, AV1, …) → use the built-in browser engine
+            if ((what == 860 || what == 862) && !webMode) { webFallback(headers); return true; }
+            return false;
         });
         try {
             if (uri.startsWith("http")) video.setVideoURI(Uri.parse(uri), headerMap(headers));
@@ -620,6 +655,34 @@ public class PreviewActivity extends Activity {
             say("Cannot start the preview.");
         }
     }
+
+    /** Formats the phone's own player cannot decode (VP9 / AV1 .webm, some .mkv, Opus): the web engine plays them in software. */
+    private void webFallback(final String headers) {
+        if (webMode) return;
+        webMode = true;
+        try { video.stopPlayback(); } catch (Exception ignored) { }
+        progress.removeCallbacks(tick);
+        spinner.setVisibility(View.GONE);
+        final android.webkit.WebView wv = new android.webkit.WebView(this);
+        wv.setBackgroundColor(Color.BLACK);
+        android.webkit.WebSettings ws = wv.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setAllowContentAccess(true);
+        ws.setAllowFileAccess(true);
+        wv.setWebChromeClient(new android.webkit.WebChromeClient());
+        wv.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override public void onPageFinished(android.webkit.WebView v, String u) {
+                v.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){v.controls=true;v.autoplay=true;v.play&&v.play().catch(function(){});v.style.background='#000'}})()", null);
+            }
+        });
+        stage.addView(wv, new FrameLayout.LayoutParams(-1, -1));
+        Toast.makeText(this, "Compatibility player (software decoding)", Toast.LENGTH_SHORT).show();
+        if (uri.startsWith("http")) wv.loadUrl(uri, headerMap(headers)); else wv.loadUrl(uri);
+        webView = wv;
+    }
+
+    private android.webkit.WebView webView;
 
     /** Some servers refuse to stream to the phone's player: fetch the file into the cache with the right headers and play that. */
     private void cacheAndPlay(final String headers) {
@@ -733,7 +796,37 @@ public class PreviewActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (video != null && video.isPlaying()) video.pause();
+        // keep playing when the app goes to the background / screen turns off (sound continues; picture returns when you come back)
+        if (webMode && webView != null) { webView.onResume(); }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        if (video != null && video.isPlaying() && !audioOnly && Build.VERSION.SDK_INT >= 26 && !webMode) {
+            try { enterPip(); } catch (Exception ignored) { }
+        }
+    }
+
+    private void enterPip() {
+        int w = 16, h = 9;
+        if (player != null && player.getVideoWidth() > 0 && player.getVideoHeight() > 0) { w = player.getVideoWidth(); h = player.getVideoHeight(); }
+        android.util.Rational r = new android.util.Rational(Math.max(1, Math.min(w, h * 2)), Math.max(1, Math.min(h, w * 2)));
+        enterPictureInPictureMode(new android.app.PictureInPictureParams.Builder().setAspectRatio(r).build());
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean in, android.content.res.Configuration c) {
+        super.onPictureInPictureModeChanged(in, c);
+        inPip = in;
+        if (bar != null) bar.setVisibility(in ? View.GONE : View.VISIBLE);
+        if (panel != null && in) panel.setVisibility(View.GONE);
+        if (!in) showControls(true);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        BgPlayService.target = PreviewActivity.class;
     }
 
     private int dp(int v) {

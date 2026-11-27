@@ -34,7 +34,12 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.9' }
-      - run: gradle -p android assembleRelease -Pvc=$(( $(date +%s) / 60 )) --no-daemon
+      - name: Build
+        run: |
+          VC=$(( $(date +%s) / 60 ))
+          echo "{\"versionCode\":$VC,\"versionName\":\"$(grep -o "versionName '[^']*'" android/app/build.gradle | cut -d"'" -f2)\"}" > android-version.json
+          cat android-version.json
+          gradle -p android assembleRelease -Pvc=$VC --no-daemon
       - run: cp android/app/build/outputs/apk/release/app-release.apk IDM-By-Encodal.apk
       - name: Check the APK is valid
         run: |
@@ -46,4 +51,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          files: IDM-By-Encodal.apk
+          files: |
+            IDM-By-Encodal.apk
+            android-version.json

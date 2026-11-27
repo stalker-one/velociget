@@ -230,6 +230,7 @@ public class YouTubeActivity extends Activity {
         f.addAction(BgPlayService.CLOSE);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(rx, f);
 
+        BgPlayService.target = YouTubeActivity.class;
         BgPlayService.start(this);
         String start = getIntent().getStringExtra("url");
         wv.loadUrl(start == null || start.isEmpty() ? "https://m.youtube.com/" : start);
@@ -260,6 +261,11 @@ public class YouTubeActivity extends Activity {
         if (Build.VERSION.SDK_INT < 26) return;
         try {
             PictureInPictureParams.Builder pb = new PictureInPictureParams.Builder().setAspectRatio(new Rational(Math.max(1, Math.min(vw, vh * 2)), Math.max(1, vh)));
+            java.util.ArrayList<android.app.RemoteAction> acts = new java.util.ArrayList<>();
+            acts.add(new android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this, playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play),
+                    playing ? "Pause" : "Play", "Play / pause",
+                    android.app.PendingIntent.getBroadcast(this, 5, new Intent(BgPlayService.TOGGLE).setPackage(getPackageName()), android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT)));
+            pb.setActions(acts);
             if (Build.VERSION.SDK_INT >= 31) pb.setAutoEnterEnabled(playing);
             setPictureInPictureParams(pb.build());
         } catch (Exception ignored) { }
@@ -268,6 +274,7 @@ public class YouTubeActivity extends Activity {
     private void enterPip() {
         if (Build.VERSION.SDK_INT < 26) { Toast.makeText(this, "Mini player needs Android 8 or newer", Toast.LENGTH_SHORT).show(); return; }
         try {
+            pipParams();
             enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(Math.max(1, Math.min(vw, vh * 2)), Math.max(1, vh))).build());
         } catch (Exception e) {
             Toast.makeText(this, "Allow picture-in-picture for this app in Android settings", Toast.LENGTH_LONG).show();
@@ -310,7 +317,10 @@ public class YouTubeActivity extends Activity {
         super.onPictureInPictureModeChanged(inPip, c);
         top.setVisibility(inPip ? View.GONE : View.VISIBLE);
         bar.setVisibility(View.GONE);
-        wv.evaluateJavascript("document.documentElement.classList." + (inPip ? "add" : "remove") + "('idm-pip')", null);
+        final String js = "document.documentElement.classList." + (inPip ? "add" : "remove") + "('idm-pip');window.dispatchEvent(new Event('resize'));var v=document.querySelector('video');if(v&&" + inPip + "&&v.paused&&!window.__userPause)v.play()";
+        wv.evaluateJavascript(js, null);
+        wv.postDelayed(() -> { if (wv != null) wv.evaluateJavascript(js, null); }, 400);
+        wv.postDelayed(() -> { if (wv != null) wv.evaluateJavascript(js, null); }, 1200);
     }
 
     @Override

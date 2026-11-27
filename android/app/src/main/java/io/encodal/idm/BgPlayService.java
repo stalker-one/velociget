@@ -17,6 +17,7 @@ public class BgPlayService extends Service {
     private static final int ID = 7711;
     static volatile String title = "YouTube";
     static volatile boolean playing = true;
+    static volatile Class<?> target = YouTubeActivity.class;
     private android.os.PowerManager.WakeLock lock;
 
     static void start(Context c) {
@@ -35,7 +36,7 @@ public class BgPlayService extends Service {
     }
 
     private static Notification build(Context c) {
-        PendingIntent open = PendingIntent.getActivity(c, 0, new Intent(c, YouTubeActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+        PendingIntent open = PendingIntent.getActivity(c, 0, new Intent(c, target).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent toggle = PendingIntent.getBroadcast(c, 1, new Intent(TOGGLE).setPackage(c.getPackageName()),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -44,7 +45,7 @@ public class BgPlayService extends Service {
         return new Notification.Builder(c, CH)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(title)
-                .setContentText("IDM By Encodal · YouTube")
+                .setContentText("IDM By Encodal · background playback")
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
