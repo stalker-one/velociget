@@ -67,13 +67,13 @@ public class SettingsActivity extends Activity {
         root.addView(Nav.bar(this, Nav.MORE));
 
         // app update
-        LinearLayout up = section(body, "App update");
+        LinearLayout updBox = section(body, "App update");
         String vn = "";
         try { vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
         TextView upt = text("Installed version " + vn + ". Check for a newer version and install it from here.", 12, SUB, false);
         upt.setPadding(0, dp(4), 0, dp(8));
-        up.addView(upt);
-        up.addView(button("Check for updates", v -> startActivity(new Intent(this, UpdateActivity.class))));
+        updBox.addView(upt);
+        updBox.addView(button("Check for updates", v -> startActivity(new Intent(this, UpdateActivity.class))));
         LinearLayout perm = section(body, "Storage access");
         TextView pt = text("Give the app All files access to browse every folder and show hidden files in Files → Folders.", 12, SUB, false);
         pt.setPadding(0, dp(4), 0, dp(8));
