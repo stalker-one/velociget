@@ -51,10 +51,9 @@ public class SettingsActivity extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(8), dp(12), dp(18), dp(14));
         head.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF1D4ED8, 0xFF3B82F6}));
-        TextView back = text("‹", 30, Color.WHITE, true);
-        back.setPadding(dp(14), 0, dp(14), dp(4));
+        Ico back = new Ico(this, Ico.BACK);
         back.setOnClickListener(v -> finish());
-        head.addView(back);
+        head.addView(back, new LinearLayout.LayoutParams(dp(48), dp(44)));
         head.addView(text("Settings", 20, Color.WHITE, true));
         root.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
@@ -128,6 +127,11 @@ public class SettingsActivity extends Activity {
         chips(a, new String[]{"System", "Light", "Dark"}, Prefs.theme(this), i -> Prefs.putInt(this, "theme", i));
         toggle(a, "Detect copied links", "Offer a copied link on the home screen", "clip", true);
         toggle(a, "Notify when finished", "One notification for every finished or failed file", "notify", true);
+
+        // player
+        LinearLayout pl = section(body, "Players");
+        toggle(pl, "Background playback", "Keep audio playing when the screen is off or you leave the app (YouTube)", "bgplay", true);
+        toggle(pl, "Auto mini player", "Shrink the video into a floating window when you press Home", "autopip", true);
 
         // engine
         LinearLayout en = section(body, "Download engine");
@@ -242,9 +246,9 @@ public class SettingsActivity extends Activity {
         tx.addView(text(title, 14, TXT, true));
         tx.addView(text(sub, 12, SUB, false));
         row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-        Switch sw = new Switch(this);
-        sw.setChecked(Prefs.getBool(this, key, def));
-        sw.setOnCheckedChangeListener((v, on) -> Prefs.putBool(this, key, on));
+        Toggle sw = new Toggle(this, Nav.dark(this));
+        sw.set(Prefs.getBool(this, key, def), false);
+        sw.setListener(on -> Prefs.putBool(this, key, on));
         row.addView(sw);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.topMargin = dp(14);

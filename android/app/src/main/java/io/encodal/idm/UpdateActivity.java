@@ -62,10 +62,9 @@ public class UpdateActivity extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(8), dp(12), dp(16), dp(14));
         head.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF1D4ED8, 0xFF3B82F6}));
-        TextView back = t("←", 22, Color.WHITE, true);
-        back.setPadding(dp(12), 0, dp(14), 0);
+        Ico back = new Ico(this, Ico.BACK);
         back.setOnClickListener(v -> finish());
-        head.addView(back);
+        head.addView(back, new LinearLayout.LayoutParams(dp(48), dp(44)));
         head.addView(t("App update", 19, Color.WHITE, true));
         root.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
@@ -85,8 +84,7 @@ public class UpdateActivity extends Activity {
         cg.setCornerRadius(dp(18));
         cg.setStroke(1, LINE);
         card.setBackground(cg);
-        TextView logo = t("⬇", 30, Color.WHITE, true);
-        logo.setGravity(Gravity.CENTER);
+        Ico logo = new Ico(this, Ico.UPDATE);
         GradientDrawable lg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF1D4ED8, 0xFF60A5FA});
         lg.setCornerRadius(dp(22));
         logo.setBackground(lg);

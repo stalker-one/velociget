@@ -17,7 +17,7 @@ final class Nav {
     private Nav() { }
 
     static final int HOME = 0, FILES = 1, BROWSER = 2, YOUTUBE = 3, MORE = 4;
-    private static final String[] ICON = {"⬇", "▤", "◎", "▶", "⚙"};
+    private static final int[] ICON = {Ico.DOWNLOAD, Ico.FOLDER, Ico.GLOBE, Ico.YT, Ico.COG};
     private static final String[] NAME = {"Downloads", "Files", "Browser", "YouTube", "More"};
 
     static boolean dark(Activity a) {
@@ -45,18 +45,16 @@ final class Nav {
             LinearLayout tab = new LinearLayout(a);
             tab.setOrientation(LinearLayout.VERTICAL);
             tab.setGravity(Gravity.CENTER);
-            TextView ic = new TextView(a);
-            ic.setText(ICON[i]);
-            ic.setGravity(Gravity.CENTER);
-            ic.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-            ic.setTextColor(i == active ? on : (i == YOUTUBE ? 0xFFEF4444 : off));
+            Ico ic = new Ico(a, ICON[i]);
+            ic.color(i == active ? on : (i == YOUTUBE ? 0xFFEF4444 : off));
+            ic.setPadding(0, dp(a, 3), 0, dp(a, 3));
             if (i == active) {
                 GradientDrawable g = new GradientDrawable();
                 g.setColor(dk ? 0x332563EB : 0x1F2563EB);
                 g.setCornerRadius(dp(a, 14));
                 ic.setBackground(g);
             }
-            tab.addView(ic, new LinearLayout.LayoutParams(dp(a, 52), dp(a, 28)));
+            tab.addView(ic, new LinearLayout.LayoutParams(dp(a, 56), dp(a, 32)));
             TextView lb = new TextView(a);
             lb.setText(NAME[i]);
             lb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f);

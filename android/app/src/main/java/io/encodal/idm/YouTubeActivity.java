@@ -10,6 +10,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -73,7 +74,7 @@ public class YouTubeActivity extends Activity {
             + "var dd=q('ytm-upsell-dialog-renderer button,ytm-mealbar-promo-renderer button[aria-label*=\"ismiss\"],ytm-mealbar-promo-renderer .mealbar-promo-renderer-dismiss-button button,tp-yt-paper-dialog #dismiss-button button,.ytm-confirm-dialog-renderer button');"
             + "if(dd&&!/Sign in|Subscribe/i.test(dd.textContent||''))dd.click();"
             + "if(v){if(!v.paused)window.__wasPlaying=1;if(window.__bg&&v.paused&&window.__wasPlaying&&!window.__userPause&&!v.ended)v.play()}"
-            + "if(window.IDMYT&&v)IDMYT.state(!v.paused&&!v.ended,v.videoWidth||0,v.videoHeight||0)}catch(e){}}"
+            + "if(window.IDMYT&&v){IDMYT.state(!v.paused&&!v.ended,v.videoWidth||0,v.videoHeight||0);IDMYT.pos(v.currentTime||0)}}catch(e){}}"
             + "setInterval(tick,350);})();";
 
     private WebView wv;
@@ -98,18 +99,10 @@ public class YouTubeActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(6), dp(6), dp(8), dp(6));
         top.setBackgroundColor(0xFF0F0F0F);
-        TextView back = btn("←", 0xFFFFFFFF, v -> onBackPressed());
-        top.addView(back);
-        TextView logo = new TextView(this);
-        logo.setText("▶");
-        logo.setTextColor(Color.WHITE);
-        logo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        logo.setGravity(Gravity.CENTER);
-        GradientDrawable lg = new GradientDrawable();
-        lg.setColor(0xFFFF0000);
-        lg.setCornerRadius(dp(7));
-        logo.setBackground(lg);
-        top.addView(logo, new LinearLayout.LayoutParams(dp(30), dp(22)));
+        top.addView(ibtn(Ico.BACK, 0xFFFFFFFF, v -> onBackPressed()));
+        Ico logo = new Ico(this, Ico.YT);
+        logo.color(0xFFFF2D2D);
+        top.addView(logo, new LinearLayout.LayoutParams(dp(36), dp(32)));
         titleView = new TextView(this);
         titleView.setText("YouTube · no ads");
         titleView.setTextColor(Color.WHITE);
@@ -118,9 +111,11 @@ public class YouTubeActivity extends Activity {
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titleView.setPadding(dp(10), 0, dp(6), 0);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
-        top.addView(btn("⬇", 0xFF60A5FA, v -> download()));
-        top.addView(btn("◱", 0xFFFFFFFF, v -> enterPip()));
-        top.addView(btn("⌂", 0xFFFFFFFF, v -> wv.loadUrl("https://m.youtube.com/")));
+        top.addView(ibtn(Ico.DOWNLOAD, 0xFF60A5FA, v -> download()));
+        headBtn = ibtn(Ico.TRACKS, bgWanted() ? 0xFF34D399 : 0xFF9CA3AF, v -> toggleBg());
+        top.addView(headBtn);
+        top.addView(ibtn(Ico.PIP, 0xFFFFFFFF, v -> enterPip()));
+        top.addView(ibtn(Ico.REFRESH, 0xFFFFFFFF, v -> wv.loadUrl("https://m.youtube.com/")));
         root.addView(top, new LinearLayout.LayoutParams(-1, -2));
 
         bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -147,6 +142,9 @@ public class YouTubeActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
         if (Build.VERSION.SDK_INT >= 26) wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         wv.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void pos(double t) { lastPos = t; }
+
             @JavascriptInterface
             public void state(boolean p, int w, int h) {
                 boolean changed = p != playing;
@@ -222,6 +220,12 @@ public class YouTubeActivity extends Activity {
         rx = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
                 if (BgPlayService.CLOSE.equals(i.getAction())) { finish(); return; }
+                if (nativeOn && bgMp != null) {
+                    try { if (bgMp.isPlaying()) bgMp.pause(); else bgMp.start(); } catch (Exception ignored) { }
+                    playing = bgMp.isPlaying();
+                    BgPlayService.refresh(YouTubeActivity.this, pageTitle, playing);
+                    return;
+                }
                 wv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){if(v.paused){window.__userPause=0;v.play()}else{window.__userPause=1;v.pause()}}})()", null);
             }
         };
@@ -234,6 +238,25 @@ public class YouTubeActivity extends Activity {
         BgPlayService.start(this);
         String start = getIntent().getStringExtra("url");
         wv.loadUrl(start == null || start.isEmpty() ? "https://m.youtube.com/" : start);
+    }
+
+    private Ico headBtn;
+
+    private Ico ibtn(int kind, int color, View.OnClickListener l) {
+        Ico i = new Ico(this, kind);
+        i.color(color);
+        i.setOnClickListener(l);
+        i.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(40)));
+        return i;
+    }
+
+    private boolean bgWanted() { return Prefs.getBool(this, "bgplay", true); }
+
+    private void toggleBg() {
+        boolean on = !bgWanted();
+        Prefs.putBool(this, "bgplay", on);
+        headBtn.color(on ? 0xFF34D399 : 0xFF9CA3AF);
+        Toast.makeText(this, on ? "Background play ON — keeps playing when you leave the app" : "Background play OFF", Toast.LENGTH_SHORT).show();
     }
 
     private TextView btn(String t, int color, View.OnClickListener l) {
@@ -283,26 +306,103 @@ public class YouTubeActivity extends Activity {
 
     @Override
     protected void onUserLeaveHint() {
-        if (playing && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode()) {
+        if (playing && Prefs.getBool(this, "autopip", true) && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode()) {
             try { enterPip(); } catch (Exception ignored) { }
         }
     }
 
+    // ---- background playback: the page's own player is unreliable with the screen off, so the sound moves to a native player ----
+    private MediaPlayer bgMp;
+    private volatile boolean nativeOn, stopped, resolving;
+    private volatile double lastPos;
+    private String audioFor = "", audioUrl = "", audioHdr = "";
+
     @Override
     protected void onStop() {
         super.onStop();
-        // screen off / other app in front: tell the page, keep the sound going
+        stopped = true;
         if (wv != null) {
             wv.evaluateJavascript("window.__bg=1", null);
             wv.onResume();
             wv.resumeTimers();
         }
+        if (bgWanted() && playing && !nativeOn && !resolving) startNative();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        stopped = false;
         if (wv != null) wv.evaluateJavascript("window.__bg=0", null);
+        if (nativeOn) stopNative(true);
+    }
+
+    private void startNative() {
+        final String page = wv == null ? null : wv.getUrl();
+        if (page == null || !(page.contains("watch") || page.contains("youtu.be") || page.contains("shorts"))) return;
+        resolving = true;
+        final double at0 = lastPos;
+        new Thread(() -> {
+            try {
+                if (!page.equals(audioFor)) {
+                    Extractor.Info in = PyEngine.probe(this, page);
+                    Extractor.Fmt best = null;
+                    for (Extractor.Fmt f : in.fmts) {
+                        if (!f.audio || f.hls || f.url.isEmpty()) continue;
+                        boolean m4a = f.ext.equals("m4a") || f.ext.equals("mp4");
+                        if (best == null || (m4a && !(best.ext.equals("m4a") || best.ext.equals("mp4"))) || (m4a == (best.ext.equals("m4a") || best.ext.equals("mp4")) && f.size > best.size)) best = f;
+                    }
+                    if (best == null) { resolving = false; return; }
+                    audioFor = page;
+                    audioUrl = best.url;
+                    audioHdr = best.headers;
+                }
+                runOnUiThread(() -> beginNative(Math.max(lastPos, at0)));
+            } catch (Exception e) {
+                resolving = false;
+            }
+        }).start();
+    }
+
+    private void beginNative(double pos) {
+        resolving = false;
+        if (!stopped || nativeOn || isInPictureInPictureMode()) return; // user came back / mini window is showing the video
+        try {
+            bgMp = new MediaPlayer();
+            bgMp.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            java.util.Map<String, String> hm = new java.util.HashMap<>();
+            for (String line : audioHdr.split("\n")) {
+                int i = line.indexOf(':');
+                if (i > 0) hm.put(line.substring(0, i).trim(), line.substring(i + 1).trim());
+            }
+            bgMp.setDataSource(this, Uri.parse(audioUrl), hm);
+            bgMp.setOnPreparedListener(m -> {
+                if (!stopped) { try { m.release(); } catch (Exception ignored) { } bgMp = null; return; }
+                try { m.seekTo((int) (pos * 1000)); m.start(); } catch (Exception ignored) { }
+                nativeOn = true;
+                playing = true;
+                if (wv != null) wv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){window.__userPause=1;v.pause()}})()", null);
+                BgPlayService.refresh(this, pageTitle, true);
+            });
+            bgMp.setOnCompletionListener(m -> { nativeOn = false; playing = false; BgPlayService.refresh(this, pageTitle, false); });
+            bgMp.setOnErrorListener((m, w, e) -> { stopNative(false); return true; });
+            bgMp.prepareAsync();
+        } catch (Exception e) {
+            stopNative(false);
+        }
+    }
+
+    /** Back in the app (or the native player failed): hand playback back to the page at the same second. */
+    private void stopNative(boolean resume) {
+        double pos = lastPos;
+        boolean was = nativeOn && bgMp != null && bgMp.isPlaying();
+        try { if (bgMp != null) { pos = bgMp.getCurrentPosition() / 1000.0; bgMp.release(); } } catch (Exception ignored) { }
+        bgMp = null;
+        nativeOn = false;
+        if (wv != null) {
+            final String js = "(function(){var v=document.querySelector('video');if(v){" + (resume ? "v.currentTime=" + pos + ";" : "") + "window.__userPause=" + (was || !resume ? 0 : 1) + ";" + (was || !resume ? "v.play();" : "") + "}})()";
+            wv.evaluateJavascript(js, null);
+        }
     }
 
     @Override
@@ -333,6 +433,8 @@ public class YouTubeActivity extends Activity {
     @Override
     protected void onDestroy() {
         try { unregisterReceiver(rx); } catch (Exception ignored) { }
+        try { if (bgMp != null) bgMp.release(); } catch (Exception ignored) { }
+        nativeOn = false;
         BgPlayService.stop(this);
         if (wv != null) { ((ViewGroup) wv.getParent()).removeView(wv); wv.destroy(); wv = null; }
         super.onDestroy();

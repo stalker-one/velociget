@@ -251,7 +251,7 @@ public class DeviceFilesActivity extends Activity {
         s.setEllipsize(android.text.TextUtils.TruncateAt.START);
         tx.addView(s);
         r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-        r.addView(tv("›", 22, SUB, false));
+        r.addView(chev(), new LinearLayout.LayoutParams(dp(18), dp(24)));
         r.setOnClickListener(v -> { openFolder = key; render(); });
         content.addView(r, rowLp());
     }
@@ -342,16 +342,14 @@ public class DeviceFilesActivity extends Activity {
                 File[] ch = m.file.listFiles();
                 int cnt = ch == null ? 0 : ch.length;
                 LinearLayout r = row();
-                TextView ic = tv("📁", 26, TXT, false);
-                ic.setGravity(Gravity.CENTER);
-                r.addView(ic, new LinearLayout.LayoutParams(dp(54), dp(54)));
+                r.addView(icoBox(Ico.FOLDER, 0xFFF59E0B), new LinearLayout.LayoutParams(dp(54), dp(54)));
                 LinearLayout tx = new LinearLayout(this);
                 tx.setOrientation(LinearLayout.VERTICAL);
                 tx.setPadding(dp(12), 0, dp(6), 0);
                 tx.addView(tv(m.name, 15, TXT, true));
                 tx.addView(tv(cnt + " items", 11, SUB, false));
                 r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-                r.addView(tv("›", 22, SUB, false));
+                r.addView(chev(), new LinearLayout.LayoutParams(dp(18), dp(24)));
                 r.setOnClickListener(v -> { dir = m.file; query = ""; render(); });
                 r.setOnLongClickListener(v -> { actions(m, playable); return true; });
                 content.addView(r, rowLp());
@@ -363,16 +361,14 @@ public class DeviceFilesActivity extends Activity {
 
     private void addDirRow(final File f, String label) {
         LinearLayout r = row();
-        TextView ic = tv("💾", 26, TXT, false);
-        ic.setGravity(Gravity.CENTER);
-        r.addView(ic, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        r.addView(icoBox(Ico.FOLDER, 0xFF3B82F6), new LinearLayout.LayoutParams(dp(54), dp(54)));
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
         tx.setPadding(dp(12), 0, dp(6), 0);
         tx.addView(tv(label, 15, TXT, true));
         tx.addView(tv(MainActivity.sizeText(f.getFreeSpace()) + " free of " + MainActivity.sizeText(f.getTotalSpace()), 11, SUB, false));
         r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-        r.addView(tv("›", 22, SUB, false));
+        r.addView(chev(), new LinearLayout.LayoutParams(dp(18), dp(24)));
         r.setOnClickListener(v -> { dir = f; render(); });
         content.addView(r, rowLp());
     }
@@ -409,7 +405,7 @@ public class DeviceFilesActivity extends Activity {
         iv.setBackground(rect(FIELD, 10, LINE));
         iv.setClipToOutline(true);
         if (m.kind == AUDIO || (m.kind == K_OTHER)) {
-            return glyph(m.kind == AUDIO ? "🎵" : "📄");
+            return icoBox(m.kind == AUDIO ? Ico.TRACKS : Ico.INFO, m.kind == AUDIO ? 0xFFA855F7 : 0xFF64748B);
         }
         final String key = String.valueOf(m.uri != null ? m.uri : m.file);
         Bitmap c = cache.get(key);
@@ -430,9 +426,15 @@ public class DeviceFilesActivity extends Activity {
         return iv;
     }
 
-    private View glyph(String g) {
-        TextView t = tv(g, 24, TXT, false);
-        t.setGravity(Gravity.CENTER);
+    private View chev() {
+        Ico c = new Ico(this, Ico.BACK).color(SUB);
+        c.setRotation(180);
+        return c;
+    }
+
+    private View icoBox(int kind, int color) {
+        Ico t = new Ico(this, kind);
+        t.color(color);
         t.setBackground(rect(FIELD, 10, LINE));
         return t;
     }
