@@ -56,6 +56,7 @@ public class BrowserActivity extends Activity {
     private final Set<String> tiktokDone = Collections.synchronizedSet(new HashSet<String>());
     private volatile boolean busy;
     private TextView epBtn;
+    private boolean showClips;
 
     private static final String SCAN = "(function(){var o=[];document.querySelectorAll('video,audio,source').forEach(function(v){var s=v.currentSrc||v.src;if(s&&s.indexOf('blob:')!==0)o.push(s)});return JSON.stringify(o)})()";
 
@@ -280,6 +281,7 @@ public class BrowserActivity extends Activity {
     /** TikTok pages carry the post as JSON (video, photos, sound). Read it from the loaded page. */
     private void readTikTok(final String u) {
         if (u == null || !u.contains("tiktok.com") || wv == null) return;
+        domImages(u);
         wv.evaluateJavascript("(function(){var e=document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__');return e?e.textContent:''})()", value -> {
             try {
                 if (value == null || value.length() < 10) return;
@@ -299,6 +301,33 @@ public class BrowserActivity extends Activity {
                 }).start();
             } catch (Exception ignored) { }
         });
+    }
+
+    /** Slideshow / photo posts: if the page data is not readable, take the big pictures shown on the page. */
+    private void domImages(final String u) {
+        if (!u.contains("/photo/") && !u.contains("/video/")) return;
+        wv.postDelayed(() -> {
+            if (wv == null) return;
+            wv.evaluateJavascript("(function(){var o=[],s={};document.querySelectorAll('img').forEach(function(i){var u=i.currentSrc||i.src||'';"
+                    + "if(/tiktokcdn|byteimg|muscdn/.test(u)&&!/avt-|avatar|\\/obj\\/|100x100|200x200|cover-|tos-.*-i-.*100/.test(u)&&i.naturalWidth>=300&&!s[u]){s[u]=1;o.push(u)}});return JSON.stringify(o)})()", v -> {
+                try {
+                    String raw = String.valueOf(new JSONTokener(v).nextValue());
+                    JSONArray a = new JSONArray(raw);
+                    String hd = hdrFor(u, null);
+                    final List<Extractor.Fmt> add = new ArrayList<>();
+                    for (int i = 0; i < a.length(); i++) {
+                        String iu = a.optString(i);
+                        if (iu.isEmpty() || seen.contains(iu)) continue;
+                        Extractor.Fmt f = new Extractor.Fmt();
+                        f.url = iu; f.headers = hd; f.ext = "jpg"; f.mime = "image/jpeg";
+                        f.label = "Image " + (add.size() + 1);
+                        f.name = Extractor.fileName(curTitle + " " + (add.size() + 1), "jpg");
+                        add.add(f);
+                    }
+                    if (add.size() >= 2) runOnUiThread(() -> { for (Extractor.Fmt f : add) if (seen.add(f.url)) caps.add(f); changed(); });
+                } catch (Exception ignored) { }
+            });
+        }, 2500);
     }
 
     /** Replays the captured API call for episode 1, 2, 3 … (and seasons) and lists every file. */
@@ -384,8 +413,20 @@ public class BrowserActivity extends Activity {
         List<Extractor.Fmt> copy;
         synchronized (caps) { copy = new ArrayList<>(caps); }
         Collections.sort(copy, (x, y) -> Long.compare(y.size, x.size));
-        for (final Extractor.Fmt f : copy) {
+        epBtn.setVisibility(apiUrl.isEmpty() || page.contains("tiktok.com") ? View.GONE : View.VISIBLE);
+        // the real files first; the many small preview clips / trailers a page loads are tucked away
+        List<Extractor.Fmt> mains = new ArrayList<>(), clips = new ArrayList<>();
+        java.util.Set<String> dup = new java.util.HashSet<>();
+        for (Extractor.Fmt f : copy) {
             if (f.size == -2) continue;
+            if (!dup.add(f.url.split("\\?")[0] + "|" + f.size)) continue;
+            boolean small = f.video && !f.audio ? false : false;
+            if (f.hls || f.mime.startsWith("image/") || (f.audio && !f.video) || f.size < 0 || f.size >= 15L * 1024 * 1024) mains.add(f); else clips.add(f);
+        }
+        final int mainCount = mains.size();
+        List<Extractor.Fmt> ordered = new ArrayList<>(mains);
+        if (showClips) ordered.addAll(clips);
+        for (final Extractor.Fmt f : ordered) {
             shown++;
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.VERTICAL);
@@ -396,7 +437,7 @@ public class BrowserActivity extends Activity {
             row.setBackground(g);
             String file = f.url.split("\\?")[0];
             file = file.substring(file.lastIndexOf('/') + 1);
-            String kind = f.audio && !f.video ? "" : f.hls ? "" : f.size > 0 && f.size < 15L * 1024 * 1024 ? " · short clip / trailer" : f.size >= 15L * 1024 * 1024 ? " · full video" : "";
+            String kind = f.audio && !f.video ? "" : f.hls ? "" : f.size > 0 && f.size < 15L * 1024 * 1024 ? " · short clip" : f.size >= 15L * 1024 * 1024 ? " · full video" : "";
             row.addView(label((f.label.isEmpty() ? f.name : f.label) + kind, 14, 0xFF0F172A, true));
             String sz = f.size > 0 ? (f.hls ? "~" : "") + MainActivity.sizeText(f.size) : (f.hls ? "stream" : "checking size…");
             row.addView(label(sz + " · " + (f.hls ? "saved as MP4" : (file.length() > 34 ? file.substring(0, 33) + "…" : file)), 12, 0xFF64748B, false));
@@ -420,7 +461,13 @@ public class BrowserActivity extends Activity {
             lp.topMargin = dp(8);
             openList.addView(row, lp);
         }
-        if (shown == 0) {
+        if (!clips.isEmpty()) {
+            TextView tg = action(showClips ? "▲ Hide " + clips.size() + " short clips / trailers" : "▼ Show " + clips.size() + " short clips / trailers (not the full video)", 0xFF64748B, false, v -> { showClips = !showClips; render(); });
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
+            tp.topMargin = dp(8);
+            openList.addView(tg, Math.min(mainCount, openList.getChildCount()), tp);
+        }
+        if (shown == 0 && clips.isEmpty()) {
             TextView e = label("Nothing captured yet.\nOpen the episode or post and press play, then tap Grab again.", 13, 0xFF64748B, false);
             e.setPadding(0, dp(12), 0, dp(12));
             openList.addView(e);
