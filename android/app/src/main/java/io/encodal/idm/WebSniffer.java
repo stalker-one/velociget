@@ -35,6 +35,13 @@ import java.util.concurrent.TimeUnit;
 final class WebSniffer {
     private WebSniffer() { }
 
+    private static final String PLAY_JS = "(function(){try{var t=function(e){return (e.innerText||e.textContent||'').trim().toLowerCase()};"
+            + "var c=document.querySelectorAll('button,a,div,span');for(var i=0;i<c.length&&i<1500;i++){var e=c[i],x=t(e);"
+            + "if(x==='watch online'||x==='play now'||x==='play'){e.click();break}}"
+            + "var sel='[class*=big-play],[class*=bigPlay],[class*=play-btn],[class*=playBtn],[class*=PlayBtn],[class*=play-icon],[class*=center-play],.vjs-big-play-button,.plyr__control--overlaid,.jw-icon-display,.art-state';"
+            + "var b=document.querySelector(sel);if(b)b.click();"
+            + "document.querySelectorAll('video').forEach(function(v){v.muted=true;var p=v.play();if(p&&p.catch)p.catch(function(){})})}catch(e){}})()";
+
     static boolean media(String u) {
         String l = u.toLowerCase(Locale.US);
         int q = l.indexOf('?');
@@ -116,11 +123,14 @@ final class WebSniffer {
                 });
                 final Handler h = new Handler(Looper.getMainLooper());
                 final long t0 = SystemClock.elapsedRealtime();
+                final boolean mb = url.contains("moviebox") || url.contains("aoneroom");
                 final Runnable[] tick = new Runnable[1];
-                tick[0] = () -> wv.evaluateJavascript(script, value -> {
+                tick[0] = () -> {
+                    if (mb) wv.evaluateJavascript(PLAY_JS, null); // these pages only load the real file after "play" is pressed
+                    wv.evaluateJavascript(script, value -> {
                     long el = SystemClock.elapsedRealtime() - t0;
                     boolean found = !net.isEmpty() || (value != null && value.contains("\\\"u\\\":[\\\"http"));
-                    if (found || el > 11000) {
+                    if ((found && !mb) || el > (mb ? 17000 : 11000)) {
                         result[0] = value;
                         try {
                             wv.stopLoading();
@@ -131,7 +141,8 @@ final class WebSniffer {
                     } else {
                         h.postDelayed(tick[0], 900);
                     }
-                });
+                    });
+                };
                 wv.loadUrl(url);
                 h.postDelayed(tick[0], 2500);
             } catch (Exception e) {
@@ -139,7 +150,7 @@ final class WebSniffer {
             }
         });
 
-        try { done.await(25, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
+        try { done.await(32, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
 
         Set<String> urls = new LinkedHashSet<>();
         try {
@@ -187,6 +198,14 @@ final class WebSniffer {
         for (Extractor.Fmt f : in.fmts) {
             String key = f.url.split("\\?")[0] + "|" + f.size;
             if (f.size > 0 && seen.add(key)) keep.add(f);
+        }
+        // MovieBox & co.: the page also loads trailers and ads; when a big file is there, only list the big ones
+        boolean bigOne = false;
+        for (Extractor.Fmt f : keep) if (f.size >= 15L * 1024 * 1024) bigOne = true;
+        if (bigOne && (url.contains("moviebox") || url.contains("aoneroom"))) {
+            List<Extractor.Fmt> big = new java.util.ArrayList<>();
+            for (Extractor.Fmt f : keep) if (f.size >= 15L * 1024 * 1024) big.add(f);
+            keep = big;
         }
         in.fmts.clear();
         in.fmts.addAll(keep);

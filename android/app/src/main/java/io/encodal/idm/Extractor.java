@@ -403,7 +403,7 @@ final class Extractor {
         String[] vids = {hd, sd};
         String[] vl = {photos ? "Slideshow video · HD" : "HD video", photos ? "Slideshow video (with sound)" : "Video"};
         java.util.HashSet<String> seenU = new java.util.HashSet<>();
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 2 && !photos; i++) { // a photo post's own "video" is only the sound: the slideshow is made on the phone
             if (vids[i].isEmpty() || !seenU.add(vids[i])) continue;
             Fmt f = new Fmt();
             f.url = abs(base, vids[i]); f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4"; f.mime = "video/mp4";
@@ -640,7 +640,7 @@ final class Extractor {
                 }
                 if (!list.isEmpty() && in.thumb.isEmpty()) in.thumb = list.get(0).url;
             }
-            if (video != null) {
+            if (video != null && !photos) {
                 JSONArray br = video.optJSONArray("bitrateInfo");
                 if (br != null) {
                     for (int i = 0; i < br.length(); i++) {

@@ -17,6 +17,7 @@ public class BgPlayService extends Service {
     private static final int ID = 7711;
     static volatile String title = "YouTube";
     static volatile boolean playing = true;
+    private android.os.PowerManager.WakeLock lock;
 
     static void start(Context c) {
         c.startForegroundService(new Intent(c, BgPlayService.class));
@@ -58,7 +59,18 @@ public class BgPlayService extends Service {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CH, "Background playback", NotificationManager.IMPORTANCE_LOW));
         startForeground(ID, build(this), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        if (lock == null) {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            lock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "idm:youtube");
+            lock.acquire(6 * 60 * 60 * 1000L);
+        }
         return START_NOT_STICKY;
+    }
+
+    @Override
+    public void onDestroy() {
+        if (lock != null && lock.isHeld()) lock.release();
+        super.onDestroy();
     }
 
     @Override

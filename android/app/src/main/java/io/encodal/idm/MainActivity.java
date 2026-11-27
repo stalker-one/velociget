@@ -565,6 +565,43 @@ public class MainActivity extends Activity {
         startDownload(url, headers, name, mime, "", "");
     }
 
+    /** TikTok photo post -> one MP4: a single picture with the sound, or several pictures sliding by with the sound. */
+    private void makeSlideshow(final Extractor.Info in) {
+        final java.util.List<String> imgs = new java.util.ArrayList<>();
+        String h = "", au = "", ah = "";
+        for (Extractor.Fmt f : in.fmts) {
+            if (f.mime.startsWith("image/")) { imgs.add(f.url); h = f.headers; }
+            else if (f.audio && !f.video && au.isEmpty()) { au = f.url; ah = f.headers; }
+        }
+        final String imgHdr = h, audioUrl = au, audioHdr = ah;
+        final String name = Extractor.fileName(in.title + " slideshow", "mp4");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(18), dp(22), dp(8));
+        final TextView msg = text("Starting…", 14, 0xFF0F172A, false);
+        final android.widget.ProgressBar pb = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        pb.setMax(100);
+        box.addView(msg);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, dp(8));
+        plp.topMargin = dp(12);
+        box.addView(pb, plp);
+        final AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Making the slideshow video").setView(box).setCancelable(false).create();
+        dlg.show();
+        new Thread(() -> {
+            try {
+                final Uri u = Slideshow.make(this, imgs, imgHdr, audioUrl, audioHdr, name, (t, pc) -> runOnUiThread(() -> { msg.setText(t); pb.setProgress(pc); }));
+                runOnUiThread(() -> {
+                    dlg.dismiss();
+                    new AlertDialog.Builder(this).setTitle("Slideshow saved").setMessage(name + "\n\nSaved in Downloads/" + Prefs.folder(this))
+                            .setPositiveButton("Play", (d, w) -> startActivity(new Intent(this, PreviewActivity.class).putExtra("uri", u.toString()).putExtra("mime", "video/mp4").putExtra("title", name)))
+                            .setNegativeButton("Close", null).show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> { dlg.dismiss(); toast("Could not make the video: " + e.getMessage()); });
+            }
+        }).start();
+    }
+
     private void startDownload(String url, String headers, String name, String mime, String audio, String audioHeaders) {
         startDownload(url, headers, name, mime, audio, audioHeaders, false);
     }
@@ -820,6 +857,13 @@ public class MainActivity extends Activity {
 
         int imgs = 0;
         for (Extractor.Fmt f : in.fmts) if (f.mime.startsWith("image/")) imgs++;
+        if (imgs >= 1) {
+            final int total = imgs;
+            TextView mk = pill(total == 1 ? "Make video: 1 picture + sound" : "Make slideshow video: " + total + " pictures + sound", PRIMARY, true, v -> { dlg.dismiss(); makeSlideshow(in); });
+            LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-2, -2);
+            mp.topMargin = dp(12);
+            body.addView(mk, mp);
+        }
         if (imgs >= 2) {
             final int total = imgs;
             TextView all = pill("Download all " + total + " images", PRIMARY, true, v -> {

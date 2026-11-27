@@ -53,11 +53,15 @@ public class YouTubeActivity extends Activity {
             + "ytm-brand-video-singleton-renderer,ytm-rich-item-renderer:has(ytm-ad-slot-renderer),.ytp-ad-overlay-container,.ytp-ad-module,.video-ads,#player-ads,"
             + "ytm-pivot-bar-item-renderer:has(a[href*=\"/premium\"]),.ytm-open-app-banner,.open-app-banner,ytm-app-banner-renderer,ytm-consent-bump-v2-renderer{display:none!important}"
             + "html.idm-pip video{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:2147483647!important;background:#000!important;object-fit:contain!important}"
-            + "html.idm-pip body>*:not(#player-container-id){visibility:hidden!important}';"
+            + "html.idm-pip body *{contain:none!important;transform:none!important;filter:none!important}"
+            + "html.idm-pip body{overflow:hidden!important}"
+            + "html.idm-pip body>*{visibility:hidden!important}html.idm-pip video{visibility:visible!important}';"
             + "document.documentElement.appendChild(st);"
             // the page believes it is always visible, so it never pauses in the background
             + "try{Object.defineProperty(document,'hidden',{get:function(){return false}});Object.defineProperty(document,'visibilityState',{get:function(){return 'visible'}});}catch(e){}"
-            + "document.addEventListener('visibilitychange',function(e){e.stopImmediatePropagation()},true);"
+            + "try{Object.defineProperty(document,'webkitHidden',{get:function(){return false}});Object.defineProperty(document,'webkitVisibilityState',{get:function(){return 'visible'}});document.hasFocus=function(){return true};}catch(e){}"
+            + "['visibilitychange','webkitvisibilitychange','blur','freeze','pause'].forEach(function(n){document.addEventListener(n,function(e){if(n==='pause'&&e.target&&e.target.tagName==='VIDEO'){if(window.__bg&&!window.__userPause&&window.__wasPlaying){setTimeout(function(){try{e.target.play()}catch(x){}},50)}return}if(n==='blur'&&e.target!==document&&e.target!==window)return;e.stopImmediatePropagation()},true)});"
+            + "window.addEventListener('blur',function(e){if(e.target===window)e.stopImmediatePropagation()},true);"
             + "window.addEventListener('pagehide',function(e){e.stopImmediatePropagation()},true);"
             + "function q(s){return document.querySelector(s)}"
             + "function tick(){try{var p=q('.html5-video-player'),v=q('video.html5-main-video')||q('video');"
@@ -68,6 +72,7 @@ public class YouTubeActivity extends Activity {
             + "var cl=q('.ytp-ad-overlay-close-button,.ytp-ad-overlay-close-container');if(cl)cl.click();"
             + "var dd=q('ytm-upsell-dialog-renderer button,ytm-mealbar-promo-renderer button[aria-label*=\"ismiss\"],ytm-mealbar-promo-renderer .mealbar-promo-renderer-dismiss-button button,tp-yt-paper-dialog #dismiss-button button,.ytm-confirm-dialog-renderer button');"
             + "if(dd&&!/Sign in|Subscribe/i.test(dd.textContent||''))dd.click();"
+            + "if(v){if(!v.paused)window.__wasPlaying=1;if(window.__bg&&v.paused&&window.__wasPlaying&&!window.__userPause&&!v.ended)v.play()}"
             + "if(window.IDMYT&&v)IDMYT.state(!v.paused&&!v.ended,v.videoWidth||0,v.videoHeight||0)}catch(e){}}"
             + "setInterval(tick,350);})();";
 
@@ -122,7 +127,12 @@ public class YouTubeActivity extends Activity {
         bar.setMax(100);
         root.addView(bar, new LinearLayout.LayoutParams(-1, dp(2)));
 
-        wv = new WebView(this);
+        // a WebView that never believes it is hidden: that is what keeps YouTube playing with the screen off
+        wv = new WebView(this) {
+            @Override protected void onWindowVisibilityChanged(int v) { super.onWindowVisibilityChanged(View.VISIBLE); }
+
+            @Override protected void onVisibilityChanged(View changed, int v) { super.onVisibilityChanged(changed, View.VISIBLE); }
+        };
         root.addView(wv, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
 
@@ -212,7 +222,7 @@ public class YouTubeActivity extends Activity {
         rx = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
                 if (BgPlayService.CLOSE.equals(i.getAction())) { finish(); return; }
-                wv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){if(v.paused)v.play();else v.pause();}})()", null);
+                wv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){if(v.paused){window.__userPause=0;v.play()}else{window.__userPause=1;v.pause()}}})()", null);
             }
         };
         IntentFilter f = new IntentFilter();
@@ -266,7 +276,33 @@ public class YouTubeActivity extends Activity {
 
     @Override
     protected void onUserLeaveHint() {
-        if (playing && Build.VERSION.SDK_INT >= 26 && Build.VERSION.SDK_INT < 31) enterPip();
+        if (playing && Build.VERSION.SDK_INT >= 26 && !isInPictureInPictureMode()) {
+            try { enterPip(); } catch (Exception ignored) { }
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // screen off / other app in front: tell the page, keep the sound going
+        if (wv != null) {
+            wv.evaluateJavascript("window.__bg=1", null);
+            wv.onResume();
+            wv.resumeTimers();
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (wv != null) wv.evaluateJavascript("window.__bg=0", null);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        pipParams();
+        if (wv != null) { wv.onResume(); wv.resumeTimers(); } // never pause the page
     }
 
     @Override

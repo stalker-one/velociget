@@ -59,7 +59,7 @@ public class PreviewActivity extends Activity {
                 int d = video.getDuration(), p = video.getCurrentPosition();
                 if (d > 0) { seek.setMax(d); seek.setProgress(p); dur.setText(clock(d)); }
                 cur.setText(clock(p));
-                playBtn.setText(video.isPlaying() ? "⏸" : "▶");
+                ((Ico) playBtn).setKind(video.isPlaying() ? Ico.PAUSE : Ico.PLAY);
             }
             progress.postDelayed(this, 400);
         }
@@ -104,20 +104,14 @@ public class PreviewActivity extends Activity {
         titleView = t;
         bar.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
         if (plUris != null && plUris.size() > 1) {
-            TextView pv = new TextView(this);
-            pv.setText("⏮");
-            pv.setTextColor(Color.WHITE);
-            pv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-            pv.setPadding(dp(10), dp(6), dp(10), dp(6));
+            TextView pv = new Ico(this, Ico.PREV);
+            pv.setPadding(dp(14), dp(6), dp(14), dp(6));
             pv.setOnClickListener(v -> step(-1));
-            bar.addView(pv);
-            TextView nx = new TextView(this);
-            nx.setText("⏭");
-            nx.setTextColor(Color.WHITE);
-            nx.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-            nx.setPadding(dp(10), dp(6), dp(10), dp(6));
+            bar.addView(pv, new LinearLayout.LayoutParams(dp(46), dp(40)));
+            TextView nx = new Ico(this, Ico.NEXT);
+            nx.setPadding(dp(14), dp(6), dp(14), dp(6));
             nx.setOnClickListener(v -> step(1));
-            bar.addView(nx);
+            bar.addView(nx, new LinearLayout.LayoutParams(dp(46), dp(40)));
         }
         TextView open = new TextView(this);
         open.setText("Open with…");
@@ -156,6 +150,176 @@ public class PreviewActivity extends Activity {
         else say("This file type cannot be previewed here.\nTap \"Open with…\" to use another app.");
     }
 
+
+    // ---- audio tracks, subtitles, playlist ----
+
+    private TextView subView;
+
+    private void trackMenu() {
+        final java.util.List<String> items = new java.util.ArrayList<>();
+        final java.util.List<Runnable> acts = new java.util.ArrayList<>();
+        items.add("Audio track / language");
+        acts.add(this::audioMenu);
+        items.add("Subtitles");
+        acts.add(this::subMenu);
+        if (plUris != null && plUris.size() > 1) {
+            items.add("Playlist (" + plUris.size() + " files)");
+            acts.add(this::playlistMenu);
+        }
+        items.add("Playback speed");
+        acts.add(() -> {
+            final String[] n = {"0.5×", "0.75×", "1×  normal", "1.25×", "1.5×", "2×"};
+            final float[] f = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+            new android.app.AlertDialog.Builder(this).setTitle("Speed").setItems(n, (d, i) -> { setSpeed(f[i]); toast("Speed " + f[i] + "×"); }).show();
+        });
+        new android.app.AlertDialog.Builder(this).setTitle("Player").setItems(items.toArray(new String[0]), (d, i) -> acts.get(i).run()).show();
+    }
+
+    private static String langName(String code) {
+        if (code == null || code.isEmpty() || code.equals("und")) return "";
+        try { return new Locale(code).getDisplayLanguage(); } catch (Exception e) { return code; }
+    }
+
+    private void audioMenu() {
+        if (player == null) return;
+        try {
+            MediaPlayer.TrackInfo[] ti = player.getTrackInfo();
+            final java.util.List<Integer> idx = new java.util.ArrayList<>();
+            final java.util.List<String> names = new java.util.ArrayList<>();
+            int cur = -1;
+            try { cur = player.getSelectedTrack(MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_AUDIO); } catch (Exception ignored) { }
+            int checked = 0;
+            for (int i = 0; i < ti.length; i++) {
+                if (ti[i].getTrackType() != MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_AUDIO) continue;
+                String l = langName(ti[i].getLanguage());
+                if (i == cur) checked = idx.size();
+                names.add("Audio " + (idx.size() + 1) + (l.isEmpty() ? "" : " · " + l));
+                idx.add(i);
+            }
+            if (idx.size() < 2) { toast(idx.isEmpty() ? "No audio track list in this file" : "This file has one audio track"); return; }
+            new android.app.AlertDialog.Builder(this).setTitle("Audio / language").setSingleChoiceItems(names.toArray(new String[0]), checked, (d, w) -> {
+                try {
+                    int pos = video.getCurrentPosition();
+                    player.selectTrack(idx.get(w));
+                    video.seekTo(pos);
+                    toast(names.get(w));
+                } catch (Exception e) { toast("Could not switch the audio"); }
+                d.dismiss();
+            }).show();
+        } catch (Exception e) {
+            toast("Audio tracks are not available");
+        }
+    }
+
+    private void subMenu() {
+        if (player == null) return;
+        final java.util.List<Integer> idx = new java.util.ArrayList<>();
+        final java.util.List<String> names = new java.util.ArrayList<>();
+        names.add("Off");
+        idx.add(-1);
+        try {
+            MediaPlayer.TrackInfo[] ti = player.getTrackInfo();
+            for (int i = 0; i < ti.length; i++) {
+                int ty = ti[i].getTrackType();
+                if (ty != MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT && ty != MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_SUBTITLE) continue;
+                String l = langName(ti[i].getLanguage());
+                names.add("Subtitle " + idx.size() + (l.isEmpty() ? "" : " · " + l));
+                idx.add(i);
+            }
+        } catch (Exception ignored) { }
+        names.add("＋ Add subtitle file (.srt / .vtt)…");
+        idx.add(-2);
+        new android.app.AlertDialog.Builder(this).setTitle("Subtitles").setItems(names.toArray(new String[0]), (d, w) -> {
+            int t = idx.get(w);
+            if (t == -2) {
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 77);
+            } else if (t == -1) {
+                subtitleOff();
+            } else {
+                subtitleOn(t);
+            }
+        }).show();
+    }
+
+    private void ensureSubView() {
+        if (subView != null) return;
+        subView = new TextView(this);
+        subView.setTextColor(Color.WHITE);
+        subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        subView.setGravity(Gravity.CENTER);
+        subView.setShadowLayer(6, 0, 0, Color.BLACK);
+        subView.setBackgroundColor(0x66000000);
+        subView.setPadding(dp(10), dp(4), dp(10), dp(4));
+        subView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = dp(120);
+        stage.addView(subView, lp);
+        player.setOnTimedTextListener((mp, text) -> runOnUiThread(() -> {
+            String t = text == null ? "" : text.getText();
+            subView.setText(t == null ? "" : t.trim());
+            subView.setVisibility(t == null || t.trim().isEmpty() ? View.GONE : View.VISIBLE);
+        }));
+    }
+
+    private int subTrack = -1;
+
+    private void subtitleOn(int track) {
+        try {
+            ensureSubView();
+            if (subTrack >= 0) { try { player.deselectTrack(subTrack); } catch (Exception ignored) { } }
+            player.selectTrack(track);
+            subTrack = track;
+            toast("Subtitles on");
+        } catch (Exception e) {
+            toast("Could not show these subtitles");
+        }
+    }
+
+    private void subtitleOff() {
+        try {
+            if (subTrack >= 0) player.deselectTrack(subTrack);
+        } catch (Exception ignored) { }
+        subTrack = -1;
+        if (subView != null) subView.setVisibility(View.GONE);
+        toast("Subtitles off");
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != 77 || res != RESULT_OK || data == null || data.getData() == null || player == null) return;
+        try {
+            java.io.InputStream in = getContentResolver().openInputStream(data.getData());
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            String txt = bo.toString("UTF-8");
+            if (txt.startsWith("\uFEFF")) txt = txt.substring(1);
+            if (txt.startsWith("WEBVTT")) { // .vtt -> .srt
+                txt = txt.replaceFirst("WEBVTT[^\n]*\n", "").replaceAll("(\\d\\d:\\d\\d:\\d\\d)\\.(\\d\\d\\d)", "$1,$2").replaceAll("(?m)^(\\d\\d:\\d\\d)\\.(\\d\\d\\d)", "00:$1,$2");
+            }
+            java.io.File f = new java.io.File(getCacheDir(), "sub.srt");
+            try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) { fo.write(txt.getBytes("UTF-8")); }
+            ensureSubView();
+            player.addTimedTextSource(f.getAbsolutePath(), MediaPlayer.MEDIA_MIMETYPE_TEXT_SUBRIP);
+            MediaPlayer.TrackInfo[] ti = player.getTrackInfo();
+            int last = -1;
+            for (int i = 0; i < ti.length; i++) if (ti[i].getTrackType() == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) last = i;
+            if (last >= 0) subtitleOn(last); else toast("Could not read that subtitle file");
+        } catch (Exception e) {
+            toast("Could not load the subtitle file");
+        }
+    }
+
+    private void playlistMenu() {
+        new android.app.AlertDialog.Builder(this).setTitle("Playlist").setSingleChoiceItems(plNames.toArray(new String[0]), plIdx, (d, w) -> {
+            step(w - plIdx);
+            d.dismiss();
+        }).show();
+    }
+
     /** Next / previous file of the playlist (files opened from the Files screen). */
     private void step(int d) {
         if (plUris == null || video == null) return;
@@ -169,6 +333,8 @@ public class PreviewActivity extends Activity {
         message.setVisibility(View.GONE);
         spinner.setVisibility(View.VISIBLE);
         video.stopPlayback();
+        if (subView != null) { stage.removeView(subView); subView = null; }
+        subTrack = -1;
         video.setVideoURI(Uri.parse(uri));
     }
 
@@ -181,12 +347,21 @@ public class PreviewActivity extends Activity {
     }
 
     private TextView ctl(String t, View.OnClickListener l) {
-        TextView v = new TextView(this);
-        v.setText(t);
-        v.setTextColor(Color.WHITE);
-        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        v.setGravity(Gravity.CENTER);
-        v.setPadding(dp(12), dp(8), dp(12), dp(8));
+        int k = "🔓".equals(t) ? Ico.UNLOCK : "🔊".equals(t) ? Ico.VOL : "⏪".equals(t) ? Ico.BACK10 : "⏸".equals(t) ? Ico.PAUSE
+                : "⏩".equals(t) ? Ico.FWD10 : "⛶".equals(t) ? Ico.FULL : "cc".equals(t) ? Ico.CC : "list".equals(t) ? Ico.LIST : 0;
+        TextView v;
+        if (k != 0) {
+            v = new Ico(this, k);
+            v.setMinimumHeight(dp(44));
+        } else {
+            v = new TextView(this);
+            v.setText(t);
+            v.setTextColor(Color.WHITE);
+            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            v.setTypeface(Typeface.DEFAULT_BOLD);
+            v.setGravity(Gravity.CENTER);
+        }
+        v.setPadding(dp(10), dp(10), dp(10), dp(10));
         v.setOnClickListener(x -> { l.onClick(x); kick(); });
         return v;
     }
@@ -347,12 +522,11 @@ public class PreviewActivity extends Activity {
         muteBtn = ctl("🔊", v -> {
             muted = !muted;
             try { if (player != null) player.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
-            muteBtn.setText(muted ? "🔇" : "🔊");
+            ((Ico) muteBtn).setKind(muted ? Ico.MUTE : Ico.VOL);
         });
         TextView back = ctl("⏪", v -> seekBy(-10000));
         playBtn = ctl("⏸", v -> { if (video.isPlaying()) video.pause(); else video.start(); });
-        playBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
-        TextView fwd = ctl("⏩", v -> seekBy(10000));
+                TextView fwd = ctl("⏩", v -> seekBy(10000));
         final float[] steps = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
         speedBtn = ctl("1×", v -> {
             int i = 0;
@@ -360,20 +534,18 @@ public class PreviewActivity extends Activity {
             setSpeed(steps[(i + 1) % steps.length]);
             toast("Speed " + speed + "×");
         });
-        speedBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         TextView rot = ctl("⛶", v -> rotate());
-        for (TextView x : new TextView[]{lockBtn, muteBtn, back, playBtn, fwd, speedBtn, rot}) r.addView(x, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView cc = ctl("cc", v -> trackMenu());
+        for (TextView x : new TextView[]{lockBtn, muteBtn, back, playBtn, fwd, speedBtn, cc, rot}) r.addView(x, new LinearLayout.LayoutParams(0, -2, 1));
         panel.addView(r);
         stage.addView(panel, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
-        unlockBtn = new TextView(this);
-        unlockBtn.setText("🔒");
-        unlockBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        unlockBtn = new Ico(this, Ico.LOCK);
         unlockBtn.setPadding(dp(16), dp(10), dp(16), dp(10));
         unlockBtn.setBackgroundColor(0x99000000);
         unlockBtn.setVisibility(View.GONE);
         unlockBtn.setOnClickListener(v -> { locked = false; showControls(true); });
-        stage.addView(unlockBtn, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL | Gravity.START));
+        stage.addView(unlockBtn, new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER_VERTICAL | Gravity.START));
         if (audio) panel.setVisibility(View.VISIBLE);
         kick();
     }
