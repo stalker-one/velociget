@@ -159,7 +159,8 @@ public class MainActivity extends Activity {
         if (u != null && u.startsWith("http")) {
             urlField.setText(u);
             urlField.setSelection(u.length());
-            Toast.makeText(this, "Link ready — tap Start download", Toast.LENGTH_SHORT).show();
+            if (i.getBooleanExtra("details", false)) openDetails(u, false);
+            else Toast.makeText(this, "Link ready — tap Start download", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -184,6 +185,13 @@ public class MainActivity extends Activity {
         titles.addView(t);
         titles.addView(st);
         head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView yt = text("▶", 13, Color.WHITE, true);
+        yt.setGravity(Gravity.CENTER);
+        yt.setBackground(rect(0xFFFF0000, 8, 0));
+        yt.setOnClickListener(v -> startActivity(new Intent(this, YouTubeActivity.class)));
+        LinearLayout.LayoutParams ylp = new LinearLayout.LayoutParams(dp(34), dp(24));
+        ylp.setMargins(0, 0, dp(6), 0);
+        head.addView(yt, ylp);
         TextView files = text("📁", 20, Color.WHITE, false);
         files.setPadding(dp(8), dp(2), dp(4), dp(2));
         files.setOnClickListener(v -> startActivity(new Intent(this, FilesActivity.class)));

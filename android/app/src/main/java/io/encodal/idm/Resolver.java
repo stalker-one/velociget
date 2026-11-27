@@ -24,7 +24,7 @@ final class Resolver {
     private static final Map<String, Future<Extractor.Info>> METAS = new LinkedHashMap<>();
     private static final Map<String, Long> STAMP = new LinkedHashMap<>();
     private static final long TTL = 10 * 60 * 1000L;
-    private static final String SITES = "youtube\\.com|youtu\\.be|tiktok\\.com|instagram\\.com|facebook\\.com|fb\\.watch|fb\\.com|twitter\\.com|x\\.com|snapchat\\.com|vimeo\\.com|dailymotion\\.com|reddit\\.com|pinterest\\.|twitch\\.tv|bilibili\\.com|soundcloud\\.com|likee\\.video|threads\\.net|linkedin\\.com";
+    private static final String SITES = "moviebox|aoneroom|youtube\\.com|youtu\\.be|tiktok\\.com|instagram\\.com|facebook\\.com|fb\\.watch|fb\\.com|twitter\\.com|x\\.com|snapchat\\.com|vimeo\\.com|dailymotion\\.com|reddit\\.com|pinterest\\.|twitch\\.tv|bilibili\\.com|soundcloud\\.com|likee\\.video|threads\\.net|linkedin\\.com";
 
     private static boolean knownSite(String url) {
         return url.toLowerCase(Locale.US).matches("^https?://([^/]*\\.)?(" + SITES + ").*");
@@ -47,7 +47,9 @@ final class Resolver {
         final Future<Extractor.Info> py = INNER.submit(() -> PyEngine.probe(act, url));
         final Future<Extractor.Info> st = INNER.submit(() -> Extractor.resolve(url));
         final boolean yt = youtube(url);
-        final boolean tt = url.toLowerCase(Locale.US).contains("tiktok.com");
+        final String lu = url.toLowerCase(Locale.US);
+        final boolean mb = lu.contains("moviebox") || lu.contains("aoneroom");
+        final boolean tt = lu.contains("tiktok.com") || mb; // sites where the built-in reader knows more than yt-dlp
         final long t0 = System.currentTimeMillis();
         Extractor.Info pyRes = null, stRes = null;
         Exception pyErr = null, stErr = null;
@@ -65,7 +67,7 @@ final class Resolver {
                 stAt = now;
                 try { stRes = st.get(); } catch (Exception e) { stErr = e; }
             }
-            if (tt && pyDone && !stDone && pyRes != null && !pyRes.fmts.isEmpty() && now - t0 > 9000) return pyRes;
+            if (tt && pyDone && !stDone && pyRes != null && !pyRes.fmts.isEmpty() && now - t0 > (mb ? 32000 : 9000)) return pyRes;
             if (tt && pyDone && stDone && (stRes == null || stRes.fmts.isEmpty()) && pyRes != null && !pyRes.fmts.isEmpty()) return pyRes;
             if (stRes != null && stRes.direct) { py.cancel(true); return stRes; }
             if (stRes != null && !stRes.fmts.isEmpty()) {

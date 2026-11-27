@@ -259,7 +259,18 @@ final class Extractor {
             if (!in.fmts.isEmpty()) return in;
         }
 
+        if (host.contains("moviebox") || host.contains("aoneroom")) {
+            try {
+                if (movieBox(url, in) && !in.fmts.isEmpty()) return in;
+            } catch (Exception e) {
+                in.note = "MovieBox did not answer: " + e.getMessage();
+            }
+        }
+
         Resp r = fetch(url, "", true, false, null);
+        if (r.code >= 400 && host.contains("tiktok.com")) {
+            try { if (tikwm(url, in) && !in.fmts.isEmpty()) return in; } catch (Exception ignored) { }
+        }
         if (r.code >= 400) throw new Exception(r.code == 403 ? "The site refused the request (403)" : r.code == 404 ? "Not found (404)" : "Server answered " + r.code);
         boolean texty = r.type.isEmpty() || r.type.startsWith("text/") || r.type.contains("json") || r.type.contains("xml");
 
@@ -272,7 +283,13 @@ final class Extractor {
         in.thumbReferer = r.url;
         in.uploader = first(meta(html, "og:site_name"), "");
 
-        if (host.contains("tiktok.com") && tiktok(html, r, in)) return in;
+        if (host.contains("tiktok.com")) {
+            if (tiktok(html, r, in)) return in;
+            // the page gave no post data (bot check): ask a TikTok reader service for photos, slideshow video, sound
+            try {
+                if (tikwm(url, in) && !in.fmts.isEmpty()) return in;
+            } catch (Exception ignored) { }
+        }
 
         // generic page: collect media links
         String h = html.replace("\\/", "/").replace("\\u0026", "&").replace("&amp;", "&");
@@ -344,6 +361,221 @@ final class Extractor {
     }
 
     // ------------------------------------------------------------------ TikTok
+
+    // ------------------------------------------------------------------ TikTok reader fallback
+
+    private static String abs(String base, String u) {
+        return u.startsWith("http") ? u : u.startsWith("//") ? "https:" + u : base + (u.startsWith("/") ? "" : "/") + u;
+    }
+
+    /** Photos, slideshow video and sound of a TikTok post, through tikwm's public reader (same idea as snaptik). */
+    static boolean tikwm(String url, Info in) throws Exception {
+        String api = "https://www.tikwm.com/api/?hd=1&url=" + java.net.URLEncoder.encode(url, "UTF-8");
+        JSONObject j = new JSONObject(getText(api, "Referer: https://www.tikwm.com/\nUser-Agent: " + UA + "\nAccept: application/json"));
+        JSONObject d = j.optJSONObject("data");
+        if (d == null || j.optInt("code", -1) != 0) return false;
+        String base = "https://www.tikwm.com";
+        String title = d.optString("title", "");
+        in.title = title.isEmpty() ? "TikTok" : title;
+        in.desc = "";
+        in.site = "tiktok.com";
+        JSONObject au = d.optJSONObject("author");
+        if (au != null) in.uploader = au.optString("nickname") + (au.optString("unique_id").isEmpty() ? "" : " (@" + au.optString("unique_id") + ")");
+        in.thumb = abs(base, d.optString("cover", ""));
+        in.thumbReferer = "https://www.tiktok.com/";
+        in.duration = d.optLong("duration", 0);
+        String hdr = "Referer: https://www.tikwm.com/\nUser-Agent: " + UA;
+        final List<Fmt> list = new ArrayList<>();
+        JSONArray imgs = d.optJSONArray("images");
+        boolean photos = imgs != null && imgs.length() > 0;
+        if (photos) {
+            for (int i = 0; i < imgs.length(); i++) {
+                String u = abs(base, imgs.optString(i));
+                Fmt f = new Fmt();
+                f.url = u; f.headers = hdr; f.ext = "jpeg"; f.mime = "image/jpeg";
+                f.label = "Image " + (i + 1);
+                f.name = fileName(in.title + " " + (i + 1), "jpg");
+                f.rank = 1000 - i;
+                list.add(f);
+            }
+        }
+        String hd = d.optString("hdplay", ""), sd = d.optString("play", "");
+        String[] vids = {hd, sd};
+        String[] vl = {photos ? "Slideshow video · HD" : "HD video", photos ? "Slideshow video (with sound)" : "Video"};
+        java.util.HashSet<String> seenU = new java.util.HashSet<>();
+        for (int i = 0; i < 2; i++) {
+            if (vids[i].isEmpty() || !seenU.add(vids[i])) continue;
+            Fmt f = new Fmt();
+            f.url = abs(base, vids[i]); f.headers = hdr; f.video = true; f.audio = true; f.ext = "mp4"; f.mime = "video/mp4";
+            f.label = vl[i];
+            f.name = fileName(in.title, "mp4");
+            f.size = i == 0 ? d.optLong("hd_size", -1) : d.optLong("size", -1);
+            f.rank = 500 - i;
+            list.add(f);
+        }
+        String mu = d.optString("music", "");
+        if (mu.isEmpty()) { JSONObject mi = d.optJSONObject("music_info"); if (mi != null) mu = mi.optString("play", ""); }
+        if (!mu.isEmpty()) {
+            JSONObject mi = d.optJSONObject("music_info");
+            String mt = mi == null ? "sound" : mi.optString("title", "sound");
+            Fmt f = new Fmt();
+            f.url = abs(base, mu); f.headers = hdr; f.audio = true; f.ext = "mp3"; f.mime = "audio/mpeg";
+            f.label = "Sound · " + mt;
+            f.name = fileName(mt, "mp3");
+            f.rank = -2;
+            list.add(f);
+        }
+        if (list.isEmpty()) return false;
+        probeAll(list);
+        for (Fmt f : list) {
+            boolean img = f.mime.startsWith("image/"), snd = f.rank == -2;
+            f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + " · " + (img ? "image" : snd ? "audio only" : "video + sound");
+        }
+        in.fmts.addAll(list);
+        return !in.fmts.isEmpty();
+    }
+
+    // ------------------------------------------------------------------ MovieBox
+
+    private static JSONObject mbApi(String origin, String path, String hdr) {
+        try {
+            JSONObject j = new JSONObject(getText(origin + path, hdr));
+            return j.optInt("code", -1) == 0 ? j.optJSONObject("data") : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * MovieBox: the page itself only plays a trailer / preview. The site's own download service lists the real files
+     * (every quality of every episode with sizes), so ask it directly.
+     */
+    static boolean movieBox(String url, final Info in) throws Exception {
+        String fin = url;
+        try {
+            Resp r0 = fetch(url, "", false, false, null);
+            if (r0.url != null && r0.url.startsWith("http")) fin = r0.url;
+            in.url = url;
+        } catch (Exception ignored) { }
+        URL u = new URL(fin);
+        String q = u.getQuery() == null ? "" : u.getQuery();
+        String id = "";
+        for (String kv : q.split("&")) if (kv.startsWith("id=")) id = kv.substring(3);
+        String path = u.getPath();
+        String slug = path.substring(path.lastIndexOf('/') + 1);
+        in.site = "moviebox";
+        String pageOrigin = u.getProtocol() + "://" + u.getHost();
+        List<String> origins = new ArrayList<>();
+        origins.add(pageOrigin);
+        for (String o : new String[]{"https://h5.aoneroom.com", "https://moviebox.ph", "https://themoviebox.xyz"}) if (!origins.contains(o)) origins.add(o);
+
+        String useOrigin = null, hdr = null;
+        JSONObject detail = null;
+        for (String o : origins) {
+            String ck = "";
+            try { ck = fetch(o + "/", "", false, false, null).cookie; } catch (Exception ignored) { }
+            String h = "Referer: " + fin + "\nOrigin: " + o + "\nAccept: application/json\nX-Client-Info: {\"timezone\":\"Asia/Karachi\"}\nUser-Agent: " + UA
+                    + (ck == null || ck.isEmpty() ? "" : "\nCookie: " + ck);
+            JSONObject d = mbApi(o, "/wefeed-h5-bff/web/subject/detail?detailPath=" + java.net.URLEncoder.encode(slug, "UTF-8"), h);
+            if (d != null && d.optJSONObject("subject") != null) { useOrigin = o; hdr = h; detail = d; break; }
+            if (!id.isEmpty() && useOrigin == null) {
+                JSONObject t = mbApi(o, "/wefeed-h5-bff/web/subject/download?subjectId=" + id + "&se=0&ep=0", h);
+                if (t != null) { useOrigin = o; hdr = h; break; }
+            }
+        }
+        if (useOrigin == null) return false;
+
+        int type = 1;
+        final List<int[]> eps = new ArrayList<>();
+        if (detail != null) {
+            JSONObject sub = detail.optJSONObject("subject");
+            if (sub != null) {
+                if (id.isEmpty()) id = sub.optString("subjectId", "");
+                in.title = sub.optString("title", slug);
+                in.desc = sub.optString("description", "");
+                JSONObject cv = sub.optJSONObject("cover");
+                in.thumb = cv == null ? sub.optString("cover", "") : cv.optString("url", "");
+                in.thumbReferer = useOrigin + "/";
+                type = sub.optInt("subjectType", 1);
+                in.uploader = sub.optString("genre", "");
+            }
+            JSONObject res = detail.optJSONObject("resource");
+            JSONArray seasons = res == null ? null : res.optJSONArray("seasons");
+            if (type == 2 && seasons != null) {
+                for (int i = 0; i < seasons.length() && eps.size() < 150; i++) {
+                    JSONObject se = seasons.optJSONObject(i);
+                    if (se == null) continue;
+                    int sn = se.optInt("se"), mx = Math.max(1, se.optInt("maxEp", se.optInt("allEp", 1)));
+                    for (int e = 1; e <= mx && eps.size() < 150; e++) eps.add(new int[]{sn, e});
+                }
+            }
+        }
+        if (id.isEmpty()) return false;
+        if (in.title.isEmpty()) in.title = slug;
+        if (eps.isEmpty()) eps.add(new int[]{0, 0});
+
+        final String fo = useOrigin, fh = hdr, fid = id, fslug = slug;
+        final boolean series = type == 2 && !(eps.size() == 1 && eps.get(0)[0] == 0);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(6);
+        List<java.util.concurrent.Future<List<Fmt>>> jobs = new ArrayList<>();
+        final String fileHdr = "Referer: " + useOrigin + "/\nUser-Agent: " + UA;
+        for (final int[] ep : eps) {
+            jobs.add(pool.submit(() -> {
+                List<Fmt> out = new ArrayList<>();
+                String qs = "subjectId=" + fid + "&se=" + ep[0] + "&ep=" + ep[1] + "&detailPath=" + fslug;
+                JSONObject d = mbApi(fo, "/wefeed-h5-bff/web/subject/download?" + qs, fh);
+                JSONArray dl = d == null ? null : d.optJSONArray("downloads");
+                String pre = series ? "S" + ep[0] + " · E" + ep[1] + " · " : "";
+                if (dl != null) {
+                    for (int i = 0; i < dl.length(); i++) {
+                        JSONObject o = dl.optJSONObject(i);
+                        if (o == null || o.optString("url").isEmpty()) continue;
+                        Fmt f = new Fmt();
+                        f.url = o.optString("url");
+                        f.headers = fileHdr;
+                        f.video = true; f.audio = true; f.ext = "mp4"; f.mime = "video/mp4";
+                        int res = o.optInt("resolution", 0);
+                        f.rank = res;
+                        f.size = o.optLong("size", -1);
+                        f.label = pre + (res > 0 ? res + "p" : "Video");
+                        f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) : "Unknown size") + " · full " + (series ? "episode" : "movie");
+                        f.name = fileName(in.title + (series ? String.format(java.util.Locale.US, " S%02dE%02d", ep[0], ep[1]) : "") + " " + (res > 0 ? res + "p" : ""), "mp4");
+                        out.add(f);
+                    }
+                }
+                if (out.isEmpty()) {
+                    JSONObject p = mbApi(fo, "/wefeed-h5-bff/web/subject/play?" + qs, fh);
+                    JSONArray st = p == null ? null : p.optJSONArray("streams");
+                    if (st != null) for (int i = 0; i < st.length(); i++) {
+                        JSONObject o = st.optJSONObject(i);
+                        if (o == null || o.optString("url").isEmpty()) continue;
+                        Fmt f = new Fmt();
+                        f.url = o.optString("url");
+                        f.headers = fileHdr;
+                        f.video = true; f.audio = true; f.ext = "mp4"; f.mime = "video/mp4";
+                        f.hls = f.url.toLowerCase(java.util.Locale.US).contains(".m3u8");
+                        String rs = o.optString("resolutions", o.optString("resolution", ""));
+                        f.label = pre + (rs.isEmpty() ? "Stream" : rs.matches("\\d+") ? rs + "p" : rs);
+                        f.size = o.optLong("size", -1);
+                        f.detail = (f.size > 0 ? MainActivity.sizeText(f.size) + " · " : "") + (f.hls ? "stream, saved as MP4" : "video");
+                        f.name = fileName(in.title + (series ? String.format(java.util.Locale.US, " S%02dE%02d", ep[0], ep[1]) : ""), "mp4");
+                        out.add(f);
+                    }
+                }
+                Collections.sort(out, (a, b) -> Integer.compare(b.rank, a.rank));
+                return out;
+            }));
+        }
+        try {
+            for (java.util.concurrent.Future<List<Fmt>> jb : jobs) {
+                try { in.fmts.addAll(jb.get(25, java.util.concurrent.TimeUnit.SECONDS)); } catch (Exception ignored) { }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        if (in.fmts.isEmpty()) in.note = "MovieBox did not list a download for this title. Use Browse & grab, press play and tap Grab.";
+        return !in.fmts.isEmpty();
+    }
 
     private static boolean tiktok(String html, Resp page, Info in) {
         try {
