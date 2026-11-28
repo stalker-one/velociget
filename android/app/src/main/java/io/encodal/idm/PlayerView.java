@@ -16,7 +16,11 @@ import java.util.Map;
 public class PlayerView extends SurfaceView implements SurfaceHolder.Callback {
     private MediaPlayer mp;
     private boolean prepared, wantPlay, surfaceReady;
-    private int vw, vh, seekAfter = -1;
+    private int vw, vh, seekAfter = -1, mode;
+
+    /** 0 fit, 1 fill (crop), 2 stretch, 3 16:9, 4 4:3 */
+    public void setMode(int m) { mode = m; requestLayout(); }
+    public int getMode() { return mode; }
     private Uri uri;
     private Map<String, String> headers;
     private String path;
@@ -118,10 +122,13 @@ public class PlayerView extends SurfaceView implements SurfaceHolder.Callback {
     }
 
     @Override protected void onMeasure(int wSpec, int hSpec) {
+        int sw = MeasureSpec.getSize(wSpec), sh = MeasureSpec.getSize(hSpec);
         int w = getDefaultSize(vw, wSpec), h = getDefaultSize(vh, hSpec);
         if (vw > 0 && vh > 0) {
-            int sw = MeasureSpec.getSize(wSpec), sh = MeasureSpec.getSize(hSpec);
-            if (sw * vh > sh * vw) { h = sh; w = sh * vw / vh; } else { w = sw; h = sw * vh / vw; }
+            float ar = mode == 3 ? 16f / 9f : mode == 4 ? 4f / 3f : (float) vw / vh;
+            if (mode == 2) { w = sw; h = sh; }
+            else if (mode == 1) { if (sw * 1f / sh > ar) { w = sw; h = (int) (sw / ar); } else { h = sh; w = (int) (sh * ar); } }
+            else { if (sw / ar > sh) { h = sh; w = (int) (sh * ar); } else { w = sw; h = (int) (sw / ar); } }
         }
         setMeasuredDimension(w, h);
     }

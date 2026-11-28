@@ -56,14 +56,17 @@ public class YouTubeActivity extends Activity {
             + "html.idm-pip video{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:2147483647!important;background:#000!important;object-fit:contain!important}"
             + "html.idm-pip body *{contain:none!important;transform:none!important;filter:none!important}"
             + "html.idm-pip body{overflow:hidden!important}"
+            + "html.idm-pip .ytp-chrome-top,html.idm-pip .ytp-chrome-bottom,html.idm-pip .ytp-gradient-top,html.idm-pip .ytp-gradient-bottom,html.idm-pip .ytp-pause-overlay,html.idm-pip .ytp-ce-element,html.idm-pip .ytp-cued-thumbnail-overlay,html.idm-pip .player-controls-background-container,html.idm-pip .player-controls-content,html.idm-pip .ytp-overlays-container,html.idm-pip .ytp-spinner,html.idm-pip .ytp-bezel,html.idm-pip .ytp-autonav-endscreen,html.idm-pip .ytp-endscreen-content,html.idm-pip [class*=player-controls]{display:none!important}"
             + "html.idm-pip body>*{visibility:hidden!important}html.idm-pip video{visibility:visible!important}';"
             + "document.documentElement.appendChild(st);"
             // the page believes it is always visible, so it never pauses in the background
             + "try{Object.defineProperty(document,'hidden',{get:function(){return false}});Object.defineProperty(document,'visibilityState',{get:function(){return 'visible'}});}catch(e){}"
             + "try{Object.defineProperty(document,'webkitHidden',{get:function(){return false}});Object.defineProperty(document,'webkitVisibilityState',{get:function(){return 'visible'}});document.hasFocus=function(){return true};}catch(e){}"
-            + "['visibilitychange','webkitvisibilitychange','blur','freeze','pause'].forEach(function(n){document.addEventListener(n,function(e){if(n==='pause'&&e.target&&e.target.tagName==='VIDEO'){if(window.__bg&&!window.__userPause&&window.__wasPlaying){setTimeout(function(){try{e.target.play()}catch(x){}},50)}return}if(n==='blur'&&e.target!==document&&e.target!==window)return;e.stopImmediatePropagation()},true)});"
+            + "['visibilitychange','webkitvisibilitychange','blur','freeze','pause'].forEach(function(n){document.addEventListener(n,function(e){if(n==='pause'&&e.target&&e.target.tagName==='VIDEO'){if((Date.now()-(window.__lt||0))<1500){window.__userPause=1;return}if((window.__bg||window.__pip)&&!window.__userPause&&window.__wasPlaying){setTimeout(function(){try{e.target.play()}catch(x){}},50)}return}if(n==='blur'&&e.target!==document&&e.target!==window)return;e.stopImmediatePropagation()},true)});"
             + "window.addEventListener('blur',function(e){if(e.target===window)e.stopImmediatePropagation()},true);"
             + "window.addEventListener('pagehide',function(e){e.stopImmediatePropagation()},true);"
+            + "['touchstart','mousedown','click'].forEach(function(n){window.addEventListener(n,function(){window.__lt=Date.now()},true)});"
+            + "document.addEventListener('play',function(e){if(e.target&&e.target.tagName==='VIDEO')window.__userPause=0},true);"
             + "function q(s){return document.querySelector(s)}"
             + "function tick(){try{var p=q('.html5-video-player'),v=q('video.html5-main-video')||q('video');"
             + "var ad=p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting')||q('.ytp-ad-player-overlay,.ytp-ad-text'));"
@@ -73,7 +76,7 @@ public class YouTubeActivity extends Activity {
             + "var cl=q('.ytp-ad-overlay-close-button,.ytp-ad-overlay-close-container');if(cl)cl.click();"
             + "var dd=q('ytm-upsell-dialog-renderer button,ytm-mealbar-promo-renderer button[aria-label*=\"ismiss\"],ytm-mealbar-promo-renderer .mealbar-promo-renderer-dismiss-button button,tp-yt-paper-dialog #dismiss-button button,.ytm-confirm-dialog-renderer button');"
             + "if(dd&&!/Sign in|Subscribe/i.test(dd.textContent||''))dd.click();"
-            + "if(v){if(!v.paused)window.__wasPlaying=1;if(window.__bg&&v.paused&&window.__wasPlaying&&!window.__userPause&&!v.ended)v.play()}"
+            + "if(v){if(!v.paused)window.__wasPlaying=1;if((window.__bg||window.__pip)&&v.paused&&window.__wasPlaying&&!window.__userPause&&!v.ended)v.play()}"
             + "if(window.IDMYT&&v){IDMYT.state(!v.paused&&!v.ended,v.videoWidth||0,v.videoHeight||0);IDMYT.pos(v.currentTime||0)}}catch(e){}}"
             + "setInterval(tick,350);})();";
 
@@ -112,7 +115,7 @@ public class YouTubeActivity extends Activity {
         titleView.setPadding(dp(10), 0, dp(6), 0);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(ibtn(Ico.DOWNLOAD, 0xFF60A5FA, v -> download()));
-        headBtn = ibtn(Ico.TRACKS, bgWanted() ? 0xFF34D399 : 0xFF9CA3AF, v -> toggleBg());
+        headBtn = ibtn(Ico.HEADSET, bgWanted() ? 0xFF34D399 : 0xFF9CA3AF, v -> toggleBg());
         top.addView(headBtn);
         top.addView(ibtn(Ico.PIP, 0xFFFFFFFF, v -> enterPip()));
         top.addView(ibtn(Ico.REFRESH, 0xFFFFFFFF, v -> wv.loadUrl("https://m.youtube.com/")));
@@ -441,7 +444,7 @@ public class YouTubeActivity extends Activity {
         super.onPictureInPictureModeChanged(inPip, c);
         top.setVisibility(inPip ? View.GONE : View.VISIBLE);
         bar.setVisibility(View.GONE);
-        final String js = "document.documentElement.classList." + (inPip ? "add" : "remove") + "('idm-pip');window.dispatchEvent(new Event('resize'));var v=document.querySelector('video');if(v&&" + inPip + "&&v.paused&&!window.__userPause)v.play()";
+        final String js = "window.__pip=" + (inPip ? 1 : 0) + ";window.__userPause=0;document.documentElement.classList." + (inPip ? "add" : "remove") + "('idm-pip');window.dispatchEvent(new Event('resize'));var v=document.querySelector('video');if(v&&" + inPip + "&&v.paused&&!window.__userPause)v.play()";
         wv.evaluateJavascript(js, null);
         wv.postDelayed(() -> { if (wv != null) wv.evaluateJavascript(js, null); }, 400);
         wv.postDelayed(() -> { if (wv != null) wv.evaluateJavascript(js, null); }, 1200);

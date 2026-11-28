@@ -10,7 +10,7 @@ import android.widget.TextView;
 /** Clean line icons for the player (drawn, not emoji, so they look the same on every phone). */
 class Ico extends TextView {
     static final int PLAY = 1, PAUSE = 2, BACK10 = 3, FWD10 = 4, VOL = 5, MUTE = 6, LOCK = 7, UNLOCK = 8, FULL = 9, CC = 10, LIST = 11, PREV = 12, NEXT = 13, PIP = 14, TRACKS = 15,
-            DOWNLOAD = 16, FOLDER = 17, GLOBE = 18, YT = 19, COG = 20, BACK = 21, MORE = 22, CHECK = 23, REFRESH = 24, CLOSE = 25, SEARCH = 26, SHARE = 27, TRASH = 28, INFO = 29, SPEED = 30, MOVIE = 31, PICTURE = 32, UPDATE = 33, SORT = 34, GRID = 35, SLIDE = 36, RESTORE = 37, SELECT = 38;
+            DOWNLOAD = 16, FOLDER = 17, GLOBE = 18, YT = 19, COG = 20, BACK = 21, MORE = 22, CHECK = 23, REFRESH = 24, CLOSE = 25, SEARCH = 26, SHARE = 27, TRASH = 28, INFO = 29, SPEED = 30, MOVIE = 31, PICTURE = 32, UPDATE = 40, SORT = 34, GRID = 35, SLIDE = 36, RESTORE = 37, SELECT = 38, HEADSET = 39, CLOUD = 40, MOON = 41, SHUFFLE = 42, LOOP = 43, TIMER = 44, ABREP = 45, EQ = 46, FX = 47, CAMERA = 48, ASPECT = 49;
     private int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -193,7 +193,7 @@ class Ico extends TextView {
                 path.moveTo(cx - s * .8f, cy); path.lineTo(cx - s * .2f, cy + s * .6f); path.lineTo(cx + s * .85f, cy - s * .55f);
                 c.drawPath(path, p);
                 break;
-            case REFRESH: case UPDATE:
+            case REFRESH:
                 c.drawArc(new RectF(cx - s * .8f, cy - s * .8f, cx + s * .8f, cy + s * .8f), -40, 280, false, p);
                 path.reset();
                 path.moveTo(cx + s * .85f, cy - s * .75f); path.lineTo(cx + s * .65f, cy - s * .2f); path.lineTo(cx + s * .15f, cy - s * .55f);
@@ -273,6 +273,90 @@ class Ico extends TextView {
                 c.drawRoundRect(new RectF(cx - s * .8f, cy - s * .8f, cx + s * .8f, cy + s * .8f), s * .25f, s * .25f, p);
                 path.reset();
                 path.moveTo(cx - s * .4f, cy); path.lineTo(cx - s * .1f, cy + s * .35f); path.lineTo(cx + s * .45f, cy - s * .3f);
+                c.drawPath(path, p);
+                break;
+            case HEADSET:
+                c.drawArc(new RectF(cx - s * .8f, cy - s * .9f, cx + s * .8f, cy + s * .7f), 180, 180, false, p);
+                c.drawRoundRect(new RectF(cx - s * .95f, cy - s * .1f, cx - s * .5f, cy + s * .75f), s * .2f, s * .2f, p);
+                c.drawRoundRect(new RectF(cx + s * .5f, cy - s * .1f, cx + s * .95f, cy + s * .75f), s * .2f, s * .2f, p);
+                break;
+            case CLOUD:
+                path.reset();
+                path.moveTo(cx - s * .55f, cy + s * .35f);
+                path.cubicTo(cx - s * 1.15f, cy + s * .35f, cx - s * 1.15f, cy - s * .45f, cx - s * .5f, cy - s * .4f);
+                path.cubicTo(cx - s * .45f, cy - s * 1.05f, cx + s * .55f, cy - s * 1.05f, cx + s * .65f, cy - s * .3f);
+                path.cubicTo(cx + s * 1.25f, cy - s * .3f, cx + s * 1.2f, cy + s * .35f, cx + s * .6f, cy + s * .35f);
+                c.drawPath(path, p);
+                c.drawLine(cx, cy - s * .15f, cx, cy + s * .8f, p);
+                path.reset();
+                path.moveTo(cx - s * .35f, cy + s * .5f); path.lineTo(cx, cy + s * .85f); path.lineTo(cx + s * .35f, cy + s * .5f);
+                c.drawPath(path, p);
+                break;
+            case MOON:
+                path.reset();
+                path.moveTo(cx + s * .35f, cy - s * .85f);
+                path.cubicTo(cx - s * .9f, cy - s * .7f, cx - s * .95f, cy + s * .85f, cx + s * .6f, cy + s * .75f);
+                path.cubicTo(cx + s * .0f, cy + s * .35f, cx + s * .0f, cy - s * .35f, cx + s * .35f, cy - s * .85f);
+                c.drawPath(path, p);
+                break;
+            case SHUFFLE:
+                path.reset();
+                path.moveTo(cx - s * .9f, cy - s * .55f); path.lineTo(cx - s * .3f, cy - s * .55f); path.lineTo(cx + s * .4f, cy + s * .55f); path.lineTo(cx + s * .8f, cy + s * .55f);
+                c.drawPath(path, p);
+                path.reset();
+                path.moveTo(cx - s * .9f, cy + s * .55f); path.lineTo(cx - s * .3f, cy + s * .55f); path.lineTo(cx + s * .4f, cy - s * .55f); path.lineTo(cx + s * .8f, cy - s * .55f);
+                c.drawPath(path, p);
+                break;
+            case LOOP:
+                c.drawRoundRect(new RectF(cx - s * .85f, cy - s * .5f, cx + s * .85f, cy + s * .5f), s * .4f, s * .4f, p);
+                path.reset();
+                path.moveTo(cx + s * .45f, cy - s * .85f); path.lineTo(cx + s * .85f, cy - s * .5f); path.lineTo(cx + s * .45f, cy - s * .15f);
+                c.drawPath(path, p);
+                break;
+            case TIMER:
+                c.drawCircle(cx, cy + s * .1f, s * .75f, p);
+                c.drawLine(cx, cy + s * .1f, cx, cy - s * .35f, p);
+                c.drawLine(cx - s * .25f, cy - s * .9f, cx + s * .25f, cy - s * .9f, p);
+                break;
+            case ABREP:
+                c.drawLine(cx - s * .85f, cy - s * .7f, cx - s * .85f, cy + s * .7f, p);
+                c.drawLine(cx + s * .85f, cy - s * .7f, cx + s * .85f, cy + s * .7f, p);
+                c.drawLine(cx - s * .85f, cy, cx + s * .85f, cy, p);
+                path.reset();
+                path.moveTo(cx + s * .45f, cy - s * .3f); path.lineTo(cx + s * .85f, cy); path.lineTo(cx + s * .45f, cy + s * .3f);
+                c.drawPath(path, p);
+                break;
+            case EQ:
+                for (int i = -1; i <= 1; i++) {
+                    c.drawLine(cx + i * s * .6f, cy - s * .85f, cx + i * s * .6f, cy + s * .85f, p);
+                }
+                p.setStyle(Paint.Style.FILL);
+                c.drawCircle(cx - s * .6f, cy - s * .2f, s * .18f, p);
+                c.drawCircle(cx, cy + s * .35f, s * .18f, p);
+                c.drawCircle(cx + s * .6f, cy - s * .35f, s * .18f, p);
+                p.setStyle(Paint.Style.STROKE);
+                break;
+            case FX:
+                for (int i = -2; i <= 2; i++) {
+                    float hh = (i == 0 ? .8f : Math.abs(i) == 1 ? .5f : .25f) * s;
+                    c.drawLine(cx + i * s * .35f, cy - hh, cx + i * s * .35f, cy + hh, p);
+                }
+                break;
+            case CAMERA:
+                c.drawRoundRect(new RectF(cx - s * .9f, cy - s * .5f, cx + s * .9f, cy + s * .7f), s * .2f, s * .2f, p);
+                c.drawLine(cx - s * .35f, cy - s * .5f, cx - s * .2f, cy - s * .8f, p);
+                c.drawLine(cx - s * .2f, cy - s * .8f, cx + s * .2f, cy - s * .8f, p);
+                c.drawLine(cx + s * .2f, cy - s * .8f, cx + s * .35f, cy - s * .5f, p);
+                c.drawCircle(cx, cy + s * .1f, s * .35f, p);
+                break;
+            case ASPECT:
+                c.drawRoundRect(new RectF(cx - s * .9f, cy - s * .6f, cx + s * .9f, cy + s * .6f), s * .15f, s * .15f, p);
+                c.drawLine(cx - s * .5f, cy, cx + s * .5f, cy, p);
+                path.reset();
+                path.moveTo(cx - s * .25f, cy - s * .25f); path.lineTo(cx - s * .5f, cy); path.lineTo(cx - s * .25f, cy + s * .25f);
+                c.drawPath(path, p);
+                path.reset();
+                path.moveTo(cx + s * .25f, cy - s * .25f); path.lineTo(cx + s * .5f, cy); path.lineTo(cx + s * .25f, cy + s * .25f);
                 c.drawPath(path, p);
                 break;
             default:

@@ -1102,6 +1102,12 @@ public class MainActivity extends Activity {
     }
 
     private void openFile(Item it) {
+        String mm = it.mime == null ? "" : it.mime;
+        String nn = it.name == null ? "" : it.name.toLowerCase(Locale.US);
+        if (mm.startsWith("video/") || mm.startsWith("audio/") || mm.startsWith("image/") || nn.matches(".*\\.(mp4|mkv|webm|mov|avi|3gp|m4v|ts|flv|mp3|m4a|aac|ogg|opus|wav|flac|jpg|jpeg|png|gif|webp)$")) {
+            startActivity(new Intent(this, PreviewActivity.class).putExtra("uri", it.uri).putExtra("mime", mm).putExtra("title", it.name));
+            return;
+        }
         try {
             Intent v = new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(it.uri), it.mime)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);

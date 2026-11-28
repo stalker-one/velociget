@@ -18,6 +18,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -45,7 +46,17 @@ public class PreviewActivity extends Activity {
     private ProgressBar spinner;
     private TextView message;
     private PlayerView video;
-    private Ico ccTop, auTop, pipTop, moreTop;
+    private Ico ccTop, auTop, moreTop;
+    private View pipTop;
+    private LinearLayout topWrap, strip;
+    private HorizontalScrollView stripScroll;
+    private TextView hwBtn;
+    private boolean loop, shuffle, night, bgPlay = true;
+    private int abState, abA, abB, aspect;
+    private View nightView;
+    private long sleepAt;
+    private android.media.audiofx.Equalizer eq;
+    private android.media.audiofx.LoudnessEnhancer boost;
     private boolean isImage, slide;
     private boolean webMode, inPip, bgOn, audioOnly, renderSeen;
     private BroadcastReceiver rx;
@@ -88,6 +99,7 @@ public class PreviewActivity extends Activity {
                 int d = video.getDuration(), p = video.getCurrentPosition();
                 if (d > 0) { seek.setMax(d); seek.setProgress(p); dur.setText(clock(d)); }
                 cur.setText(clock(p));
+                if (abState == 2 && p >= abB) video.seekTo(abA);
                 ((Ico) playBtn).setKind(video.isPlaying() ? Ico.PAUSE : Ico.PLAY);
             }
             progress.postDelayed(this, 400);
@@ -102,6 +114,16 @@ public class PreviewActivity extends Activity {
         uri = getIntent().getStringExtra("uri");
         mime = getIntent().getStringExtra("mime");
         title = getIntent().getStringExtra("title");
+        if (uri == null && getIntent().getData() != null) { // "Open with IDM By Encodal" from another app / file manager
+            Uri d0 = getIntent().getData();
+            uri = d0.toString();
+            mime = getIntent().getType();
+            String nm = d0.getLastPathSegment();
+            try (android.database.Cursor c = getContentResolver().query(d0, new String[]{"_display_name"}, null, null, null)) {
+                if (c != null && c.moveToFirst() && c.getString(0) != null) nm = c.getString(0);
+            } catch (Exception ignored) { }
+            title = nm;
+        }
         final String headers = getIntent().getStringExtra("headers");
         plUris = getIntent().getStringArrayListExtra("pl_uris");
         plNames = getIntent().getStringArrayListExtra("pl_names");
@@ -140,25 +162,42 @@ public class PreviewActivity extends Activity {
             nx.setOnClickListener(v -> step(1));
             bar.addView(nx, new LinearLayout.LayoutParams(dp(42), dp(40)));
         }
-        ccTop = new Ico(this, Ico.CC);
-        ccTop.setOnClickListener(v -> subMenu());
-        bar.addView(ccTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
         auTop = new Ico(this, Ico.TRACKS);
         auTop.setOnClickListener(v -> audioMenu());
         bar.addView(auTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
-        pipTop = new Ico(this, Ico.PIP);
-        pipTop.setOnClickListener(v -> { if (Build.VERSION.SDK_INT >= 26 && !webMode) { try { enterPip(); } catch (Exception e) { say("Allow picture-in-picture for this app in Android settings"); } } });
-        bar.addView(pipTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        ccTop = new Ico(this, Ico.CC);
+        ccTop.setOnClickListener(v -> subMenu());
+        bar.addView(ccTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        hwBtn = new TextView(this);
+        hwBtn.setText("HW");
+        hwBtn.setTextColor(Color.WHITE);
+        hwBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        hwBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        hwBtn.setGravity(Gravity.CENTER);
+        hwBtn.setOnClickListener(v -> {
+            if (webMode) { toast("Already using the software (compatibility) player"); return; }
+            new android.app.AlertDialog.Builder(this).setTitle("Decoder").setMessage("HW: the phone's hardware decoder (fast, battery friendly).\nSW: software decoder in the built-in browser engine. It plays more formats (VP9, AV1, WebM) but uses more battery.")
+                    .setPositiveButton("Use SW", (d, w) -> webFallback(getIntent().getStringExtra("headers"), video == null ? 0 : video.getCurrentPosition() / 1000))
+                    .setNegativeButton("Keep HW", null).show();
+        });
+        pipTop = hwBtn;
+        bar.addView(hwBtn, new LinearLayout.LayoutParams(dp(40), dp(40)));
         moreTop = new Ico(this, Ico.MORE);
-        moreTop.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setItems(
-                plUris != null && plUris.size() > 1 ? new String[]{"Playlist", "Open with…"} : new String[]{"Open with…"}, (d, w) -> {
-            if (plUris != null && plUris.size() > 1 && w == 0) { playlistMenu(); return; }
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(uri), mime.isEmpty() ? "*/*" : mime)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK));
-            } catch (Exception e) { say("No app can open this file"); }
-        }).show());
+        moreTop.setOnClickListener(v -> { stripScroll.setVisibility(stripScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); kick(); });
         bar.addView(moreTop, new LinearLayout.LayoutParams(dp(36), dp(40)));
+        topWrap = new LinearLayout(this);
+        topWrap.setOrientation(LinearLayout.VERTICAL);
+        topWrap.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        strip = new LinearLayout(this);
+        buildStrip();
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setBackgroundColor(0x99000000);
+        hs.addView(strip);
+        hs.setTag("strip");
+        topWrap.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+        stripScroll = hs;
+        hs.setVisibility(View.GONE);
 
         stage = new FrameLayout(this);
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -357,6 +396,7 @@ public class PreviewActivity extends Activity {
     private void step(int d) {
         if (plUris == null) return;
         int n = plIdx + d;
+        if (shuffle && plUris.size() > 1) { do { n = (int) (Math.random() * plUris.size()); } while (n == plIdx); }
         if (n < 0 || n >= plUris.size()) return;
         String nm = plMimes == null || n >= plMimes.size() ? "" : plMimes.get(n);
         boolean nextVideo = nm.startsWith("video/") || nm.startsWith("audio/");
@@ -390,7 +430,7 @@ public class PreviewActivity extends Activity {
 
     private TextView ctl(String t, View.OnClickListener l) {
         int k = "🔓".equals(t) ? Ico.UNLOCK : "🔊".equals(t) ? Ico.VOL : "⏪".equals(t) ? Ico.BACK10 : "⏸".equals(t) ? Ico.PAUSE
-                : "⏩".equals(t) ? Ico.FWD10 : "⛶".equals(t) ? Ico.FULL : "cc".equals(t) ? Ico.CC : "list".equals(t) ? Ico.LIST : 0;
+                : "⏩".equals(t) ? Ico.FWD10 : "⛶".equals(t) ? Ico.FULL : "cc".equals(t) ? Ico.CC : "list".equals(t) ? Ico.LIST : "prev".equals(t) ? Ico.PREV : "next".equals(t) ? Ico.NEXT : "aspect".equals(t) ? Ico.ASPECT : 0;
         TextView v;
         if (k != 0) {
             v = new Ico(this, k);
@@ -406,6 +446,177 @@ public class PreviewActivity extends Activity {
         v.setPadding(dp(10), dp(10), dp(10), dp(10));
         v.setOnClickListener(x -> { l.onClick(x); kick(); });
         return v;
+    }
+
+
+    // ---- tool strip (MX-style) ----
+
+    private final java.util.List<TextView> stripIcons = new java.util.ArrayList<>();
+
+    private void toolItem(int kind, String label, View.OnClickListener l, String tag) {
+        LinearLayout it = new LinearLayout(this);
+        it.setOrientation(LinearLayout.VERTICAL);
+        it.setGravity(Gravity.CENTER);
+        it.setPadding(dp(4), dp(8), dp(4), dp(8));
+        Ico ic = new Ico(this, kind);
+        ic.setTag(tag);
+        it.addView(ic, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f);
+        t.setGravity(Gravity.CENTER);
+        t.setMaxLines(2);
+        it.addView(t, new LinearLayout.LayoutParams(dp(68), -2));
+        it.setOnClickListener(v -> { l.onClick(v); kick(); });
+        strip.addView(it, new LinearLayout.LayoutParams(dp(72), -2));
+    }
+
+    private void lit(String tag, boolean on) {
+        for (int i = 0; i < strip.getChildCount(); i++) {
+            View c = ((LinearLayout) strip.getChildAt(i)).getChildAt(0);
+            if (tag.equals(c.getTag())) {
+                GradientDrawable g = new GradientDrawable();
+                g.setShape(GradientDrawable.OVAL);
+                g.setColor(on ? 0xFF1D4ED8 : 0x00000000);
+                c.setBackground(g);
+            }
+        }
+    }
+
+    private void buildStrip() {
+        toolItem(Ico.MOON, "Night mode", v -> {
+            night = !night;
+            if (nightView == null) {
+                nightView = new View(this);
+                nightView.setBackgroundColor(0xAA000000);
+                nightView.setClickable(false);
+                stage.addView(nightView, 1, new FrameLayout.LayoutParams(-1, -1));
+            }
+            nightView.setVisibility(night ? View.VISIBLE : View.GONE);
+            lit("night", night);
+        }, "night");
+        toolItem(Ico.SHUFFLE, "Shuffle", v -> {
+            if (plUris == null || plUris.size() < 2) { toast("Open a folder with several files to shuffle"); return; }
+            shuffle = !shuffle;
+            lit("shuffle", shuffle);
+            toast(shuffle ? "Shuffle on" : "Shuffle off");
+        }, "shuffle");
+        toolItem(Ico.LOOP, "Loop", v -> { loop = !loop; lit("loop", loop); toast(loop ? "Repeat this video" : "Repeat off"); }, "loop");
+        toolItem(Ico.VOL, "Mute", v -> {
+            muted = !muted;
+            try { if (player != null) player.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
+            ((Ico) ((LinearLayout) v).getChildAt(0)).setKind(muted ? Ico.MUTE : Ico.VOL);
+            lit("mute", muted);
+        }, "mute");
+        toolItem(Ico.TIMER, "Sleep timer", v -> sleepMenu(), "sleep");
+        toolItem(Ico.ABREP, "A - B repeat", v -> {
+            if (video == null) return;
+            if (abState == 0) { abA = video.getCurrentPosition(); abState = 1; toast("A set — tap again to set B"); }
+            else if (abState == 1) { abB = video.getCurrentPosition(); if (abB <= abA + 500) { toast("B must be later than A"); return; } abState = 2; toast("Repeating A – B"); }
+            else { abState = 0; toast("A – B repeat off"); }
+            lit("ab", abState == 2);
+        }, "ab");
+        toolItem(Ico.FX, "Volume boost", v -> boostMenu(), "fx");
+        toolItem(Ico.EQ, "Equalizer", v -> eqMenu(), "eq");
+        toolItem(Ico.SPEED, "Speed", v -> {
+            final String[] n = {"0.5×", "0.75×", "1×  normal", "1.25×", "1.5×", "2×"};
+            final float[] f = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+            new android.app.AlertDialog.Builder(this).setTitle("Speed").setItems(n, (d, i) -> { setSpeed(f[i]); toast("Speed " + f[i] + "×"); }).show();
+        }, "speed");
+        toolItem(Ico.PIP, "Mini player", v -> {
+            if (Build.VERSION.SDK_INT >= 26 && !webMode) { try { enterPip(); } catch (Exception e) { toast("Allow picture-in-picture for this app in Android settings"); } }
+        }, "pip");
+        toolItem(Ico.CAMERA, "Screenshot", v -> screenshot(), "shot");
+        toolItem(Ico.FULL, "Rotate", v -> rotate(), "rot");
+        toolItem(Ico.HEADSET, "Background play", v -> {
+            bgPlay = !bgPlay;
+            Prefs.putBool(this, "bgplay", bgPlay);
+            lit("bg", bgPlay);
+            toast(bgPlay ? "Keeps playing when you leave the app" : "Pauses when you leave the app");
+        }, "bg");
+        if (plUris != null && plUris.size() > 1) toolItem(Ico.LIST, "Playlist", v -> playlistMenu(), "pl");
+        toolItem(Ico.SHARE, "Open with", v -> {
+            try {
+                startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(uri), mime.isEmpty() ? "*/*" : mime)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Open with"));
+            } catch (Exception e) { toast("No app can open this file"); }
+        }, "ow");
+        bgPlay = Prefs.getBool(this, "bgplay", true);
+        lit("bg", bgPlay);
+    }
+
+    private void sleepMenu() {
+        final String[] n = {"Off", "15 minutes", "30 minutes", "45 minutes", "60 minutes", "After this video"};
+        new android.app.AlertDialog.Builder(this).setTitle("Sleep timer").setItems(n, (d, i) -> {
+            progress.removeCallbacks(sleepRun);
+            sleepAt = 0;
+            lit("sleep", i != 0);
+            if (i == 0) { toast("Sleep timer off"); return; }
+            if (i == 5) { sleepAfter = true; toast("Will stop after this video"); return; }
+            sleepAfter = false;
+            sleepAt = System.currentTimeMillis() + i * 15L * 60000;
+            progress.postDelayed(sleepRun, i * 15L * 60000);
+            toast("Stops in " + n[i]);
+        }).show();
+    }
+
+    private boolean sleepAfter;
+    private final Runnable sleepRun = () -> { if (video != null) video.pause(); toast("Sleep timer: stopped"); finish(); };
+
+    private void boostMenu() {
+        if (player == null) return;
+        final String[] n = {"Off", "+3 dB", "+6 dB", "+9 dB"};
+        new android.app.AlertDialog.Builder(this).setTitle("Volume boost").setItems(n, (d, i) -> {
+            try {
+                if (boost == null) boost = new android.media.audiofx.LoudnessEnhancer(player.getAudioSessionId());
+                boost.setTargetGain(i * 300);
+                boost.setEnabled(i > 0);
+                lit("fx", i > 0);
+                toast("Volume boost " + n[i]);
+            } catch (Exception e) { toast("Volume boost is not available on this phone"); }
+        }).show();
+    }
+
+    private void eqMenu() {
+        if (player == null) return;
+        try {
+            if (eq == null) eq = new android.media.audiofx.Equalizer(0, player.getAudioSessionId());
+            final short np = eq.getNumberOfPresets();
+            final String[] n = new String[np + 1];
+            n[0] = "Off";
+            for (short i = 0; i < np; i++) n[i + 1] = eq.getPresetName(i);
+            new android.app.AlertDialog.Builder(this).setTitle("Equalizer").setItems(n, (d, i) -> {
+                try {
+                    if (i == 0) eq.setEnabled(false); else { eq.setEnabled(true); eq.usePreset((short) (i - 1)); }
+                    lit("eq", i != 0);
+                    toast("Equalizer: " + n[i]);
+                } catch (Exception e) { toast("Equalizer error"); }
+            }).show();
+        } catch (Exception e) {
+            toast("Equalizer is not available on this phone");
+        }
+    }
+
+    private void screenshot() {
+        if (video == null || webMode || Build.VERSION.SDK_INT < 26) { toast("Screenshot works with the normal player"); return; }
+        try {
+            final Bitmap bm = Bitmap.createBitmap(Math.max(2, video.getWidth()), Math.max(2, video.getHeight()), Bitmap.Config.ARGB_8888);
+            android.view.PixelCopy.request(video, bm, res -> {
+                if (res != android.view.PixelCopy.SUCCESS) { toast("Could not capture this frame"); return; }
+                try {
+                    android.content.ContentValues cv = new android.content.ContentValues();
+                    cv.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "IDM_" + System.currentTimeMillis() + ".jpg");
+                    cv.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                    cv.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/IDM By Encodal");
+                    Uri u = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                    try (java.io.OutputStream o = getContentResolver().openOutputStream(u)) { bm.compress(Bitmap.CompressFormat.JPEG, 95, o); }
+                    toast("Saved to Pictures/IDM By Encodal");
+                } catch (Exception e) { toast("Could not save the screenshot"); }
+            }, new Handler(Looper.getMainLooper()));
+        } catch (Exception e) {
+            toast("Could not capture this frame");
+        }
     }
 
     /** Rounded label button with a line icon (used for the player shortcuts). */
@@ -453,9 +664,9 @@ public class PreviewActivity extends Activity {
 
     private void showControls(boolean on) {
         shown = on;
-        if (locked) { unlockBtn.setVisibility(on ? View.VISIBLE : View.GONE); panel.setVisibility(View.GONE); bar.setVisibility(View.GONE); return; }
+        if (locked) { unlockBtn.setVisibility(on ? View.VISIBLE : View.GONE); panel.setVisibility(View.GONE); topWrap.setVisibility(View.GONE); return; }
         panel.setVisibility(on ? View.VISIBLE : View.GONE);
-        bar.setVisibility(on ? View.VISIBLE : View.GONE);
+        topWrap.setVisibility(on ? View.VISIBLE : View.GONE);
         unlockBtn.setVisibility(View.GONE);
         if (on) kick();
     }
@@ -599,40 +810,29 @@ public class PreviewActivity extends Activity {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER);
         lockBtn = ctl("🔓", v -> { locked = true; showControls(false); toast("Locked — tap the lock to unlock"); });
-        muteBtn = ctl("🔊", v -> {
-            muted = !muted;
-            try { if (player != null) player.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
-            ((Ico) muteBtn).setKind(muted ? Ico.MUTE : Ico.VOL);
-        });
-        TextView back = ctl("⏪", v -> seekBy(-10000));
+        TextView prevB = ctl("prev", v -> step(-1));
         playBtn = ctl("⏸", v -> { if (video.isPlaying()) video.pause(); else video.start(); });
         GradientDrawable pg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF1D4ED8, 0xFF3B82F6});
         pg.setShape(GradientDrawable.OVAL);
         playBtn.setBackground(pg);
-        TextView fwd = ctl("⏩", v -> seekBy(10000));
-        TextView rot = ctl("⛶", v -> rotate());
-        for (TextView x : new TextView[]{lockBtn, back, playBtn, fwd, muteBtn, rot}) {
+        TextView nextB = ctl("next", v -> step(1));
+        TextView asp = ctl("aspect", v -> {
+            aspect = (aspect + 1) % 5;
+            video.setMode(aspect);
+            toast(new String[]{"Fit", "Fill (crop)", "Stretch", "16:9", "4:3"}[aspect]);
+        });
+        boolean multi = plUris != null && plUris.size() > 1;
+        prevB.setAlpha(multi ? 1f : 0.35f);
+        nextB.setAlpha(multi ? 1f : 0.35f);
+        for (TextView x : new TextView[]{lockBtn, prevB, playBtn, nextB, asp}) {
             int sz = x == playBtn ? 54 : 44;
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(sz), 1);
             if (x == playBtn) lp.setMargins(dp(6), 0, dp(6), 0);
             x.setPadding(dp(8), dp(8), dp(8), dp(8));
             r.addView(x, lp);
         }
-        // labelled shortcuts: subtitles, audio / language, speed, mini player
-        final float[] steps = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
-        LinearLayout pills = new LinearLayout(this);
-        pills.setGravity(Gravity.CENTER);
-        pills.addView(pill(Ico.CC, "Subtitles", v -> subMenu()));
-        pills.addView(pill(Ico.TRACKS, "Audio", v -> audioMenu()));
-        speedBtn = pill(Ico.SPEED, "1×", v -> {
-            int i = 0;
-            for (int k = 0; k < steps.length; k++) if (steps[k] == speed) i = k;
-            setSpeed(steps[(i + 1) % steps.length]);
-            toast("Speed " + speed + "×");
-        });
-        pills.addView(speedBtn);
-        pills.addView(pill(Ico.PIP, "Mini", v -> { if (Build.VERSION.SDK_INT >= 26 && !webMode) { try { enterPip(); } catch (Exception e) { toast("Allow picture-in-picture in settings"); } } }));
-        panel.addView(pills);
+        speedBtn = new TextView(this);
+        muteBtn = new Ico(this, Ico.VOL);
         panel.addView(r);
         stage.addView(panel, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
@@ -642,7 +842,7 @@ public class PreviewActivity extends Activity {
         unlockBtn.setVisibility(View.GONE);
         unlockBtn.setOnClickListener(v -> { locked = false; showControls(true); });
         stage.addView(unlockBtn, new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER_VERTICAL | Gravity.START));
-        stage.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        stage.addView(topWrap, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
         if (audio) panel.setVisibility(View.VISIBLE);
         kick();
     }
@@ -710,7 +910,11 @@ public class PreviewActivity extends Activity {
             progress.post(tick);
             if (audio) say("♪");
         });
-        video.setOnCompletionListener(mp -> { if (plUris != null && plIdx < plUris.size() - 1) step(1); });
+        video.setOnCompletionListener(mp -> {
+            if (loop) { video.seekTo(0); video.start(); return; }
+            if (sleepAfter) { finish(); return; }
+            if (plUris != null && plUris.size() > 1 && (shuffle || plIdx < plUris.size() - 1)) step(1);
+        });
         video.setOnErrorListener((mp, what, extra) -> {
             if (uri.startsWith("http") && !cachedTry) {
                 cachedTry = true;
@@ -813,6 +1017,7 @@ public class PreviewActivity extends Activity {
         ccTop.setVisibility(View.GONE);
         auTop.setVisibility(View.GONE);
         pipTop.setVisibility(View.GONE);
+        moreTop.setVisibility(View.GONE);
         if (plUris != null && plUris.size() > 1) {
             titleView.setText((plIdx + 1) + "/" + plUris.size() + "  " + (title == null ? "" : title));
             final Ico sl = new Ico(this, Ico.SLIDE);
@@ -827,7 +1032,7 @@ public class PreviewActivity extends Activity {
             bar.addView(sl, bar.getChildCount() - 1, new LinearLayout.LayoutParams(dp(42), dp(40)));
             if (getIntent().getBooleanExtra("slide", false)) { slide = true; sl.color(0xFF60A5FA); progress.postDelayed(slideTick, 3000); }
         }
-        stage.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        stage.addView(topWrap, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
     }
 
     private final Runnable slideTick = new Runnable() {
@@ -844,7 +1049,7 @@ public class PreviewActivity extends Activity {
         imageBar();
         final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent e) { return true; }
-            @Override public boolean onSingleTapConfirmed(MotionEvent e) { bar.setVisibility(bar.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); return true; }
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) { topWrap.setVisibility(topWrap.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); return true; }
             @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
                 if (Math.abs(vx) > Math.abs(vy) * 1.2f && Math.abs(vx) > 700) { step(vx < 0 ? 1 : -1); return true; }
                 return false;
@@ -919,6 +1124,7 @@ public class PreviewActivity extends Activity {
     protected void onPause() {
         super.onPause();
         // keep playing when the app goes to the background / screen turns off (sound continues; picture returns when you come back)
+
         if (webMode && webView != null) { webView.onResume(); }
     }
 
@@ -940,7 +1146,7 @@ public class PreviewActivity extends Activity {
     public void onPictureInPictureModeChanged(boolean in, android.content.res.Configuration c) {
         super.onPictureInPictureModeChanged(in, c);
         inPip = in;
-        if (bar != null) bar.setVisibility(in ? View.GONE : View.VISIBLE);
+        if (topWrap != null) topWrap.setVisibility(in ? View.GONE : View.VISIBLE);
         if (panel != null && in) panel.setVisibility(View.GONE);
         if (!in) showControls(true);
     }
@@ -949,6 +1155,12 @@ public class PreviewActivity extends Activity {
     protected void onStart() {
         super.onStart();
         BgPlayService.target = PreviewActivity.class;
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (!Prefs.getBool(this, "bgplay", true) && !isInPictureInPictureMode() && video != null && video.isPlaying()) video.pause();
     }
 
     private int dp(int v) {
