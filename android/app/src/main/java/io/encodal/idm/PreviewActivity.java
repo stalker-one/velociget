@@ -67,7 +67,11 @@ public class PreviewActivity extends Activity {
         BgPlayService.target = PreviewActivity.class;
         rx = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
-                if (BgPlayService.CLOSE.equals(i.getAction())) { finish(); return; }
+                String a = i.getAction();
+                if (BgPlayService.CLOSE.equals(a)) { finish(); return; }
+                if (BgPlayService.NEXT.equals(a)) { step(1); return; }
+                if (BgPlayService.MUTE.equals(a)) { setMuted(!muted); return; }
+                if (BgPlayService.LOOP.equals(a)) { loop = !loop; lit("loop", loop); pushState(); return; }
                 if (video != null) { if (video.isPlaying()) video.pause(); else video.start(); }
                 BgPlayService.refresh(PreviewActivity.this, title == null ? "Playing" : title, video != null && video.isPlaying());
             }
@@ -75,9 +79,51 @@ public class PreviewActivity extends Activity {
         IntentFilter f = new IntentFilter();
         f.addAction(BgPlayService.TOGGLE);
         f.addAction(BgPlayService.CLOSE);
+        f.addAction(BgPlayService.NEXT);
+        f.addAction(BgPlayService.MUTE);
+        f.addAction(BgPlayService.LOOP);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(rx, f);
         BgPlayService.start(this);
         BgPlayService.refresh(this, title == null ? "Playing" : title, true);
+        pushState();
+    }
+
+    private String curMode = "audio";
+    private void pushState() { BgPlayService.state(this, curMode, muted, loop); }
+
+    private void setMuted(boolean m) {
+        muted = m;
+        try { if (player != null) player.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); if (video != null && video.isVlc()) video.vlcVolume(muted ? 0 : 100); } catch (Exception ignored) { }
+        lit("mute", muted);
+        pushState();
+    }
+
+    /** Background AUDIO mode: leave the app, sound only, notification says "Background playing". */
+    private void goBackgroundAudio() {
+        if (video == null || webMode) { toast("Background audio is not available in compatibility mode"); return; }
+        curMode = "audio";
+        audioOnly = false;
+        startBg();
+        pushState();
+        if (!video.isPlaying()) video.start();
+        toast("Background audio — playing with the screen off");
+        moveTaskToBack(true);
+    }
+
+    /** Mini window (picture-in-picture) mode: floating video, notification says "Mini window". */
+    private void goMiniWindow() {
+        if (Build.VERSION.SDK_INT < 26 || webMode) { toast("Mini window needs Android 8+ and the normal player"); return; }
+        curMode = "pip";
+        startBg();
+        pushState();
+        try { enterPip(); } catch (Exception e) { toast("Allow picture-in-picture for this app in Android settings"); }
+    }
+
+    @Override
+    protected void onNewIntent(Intent in) {
+        super.onNewIntent(in);
+        setIntent(in);
+        if (in.getBooleanExtra("pipnow", false)) { in.removeExtra("pipnow"); goMiniWindow(); }
     }
     private String uri, mime, title;
     private boolean cachedTry;
@@ -175,9 +221,9 @@ public class PreviewActivity extends Activity {
         hwBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         hwBtn.setGravity(Gravity.CENTER);
         hwBtn.setOnClickListener(v -> {
-            if (webMode) { toast("Already using the software (compatibility) player"); return; }
-            new android.app.AlertDialog.Builder(this).setTitle("Decoder").setMessage("HW: the phone's hardware decoder (fast, battery friendly).\nSW: software decoder in the built-in browser engine. It plays more formats (VP9, AV1, WebM) but uses more battery.")
-                    .setPositiveButton("Use SW", (d, w) -> webFallback(getIntent().getStringExtra("headers"), video == null ? 0 : video.getCurrentPosition() / 1000))
+            if (webMode || vlcMode) { toast("Already using the VLC engine"); return; }
+            new android.app.AlertDialog.Builder(this).setTitle("Decoder").setMessage("HW: the phone's hardware decoder (fast, battery friendly).\nSW: the built-in VLC engine. It plays every format (MKV, HEVC, AVI, FLV, AC3, DTS, WebM…) inside this player.")
+                    .setPositiveButton("Use SW", (d, w) -> startVlc(getIntent().getStringExtra("headers"), video == null ? 0 : video.getCurrentPosition()))
                     .setNegativeButton("Keep HW", null).show();
         });
         pipTop = hwBtn;
@@ -252,7 +298,25 @@ public class PreviewActivity extends Activity {
         try { return new Locale(code).getDisplayLanguage(); } catch (Exception e) { return code; }
     }
 
+    private void vlcTrackMenu(final boolean audio) {
+        final java.util.List<Integer> ids = new java.util.ArrayList<>();
+        final java.util.List<String> names = video.vlcTracks(audio, ids);
+        if (!audio) { names.add("Add subtitle file…"); ids.add(-99); }
+        if (names.isEmpty()) { toast(audio ? "No audio tracks" : "No subtitles in this file"); return; }
+        int cur = video.vlcCurrentTrack(audio), sel = -1;
+        for (int i = 0; i < ids.size(); i++) if (ids.get(i) == cur) sel = i;
+        new android.app.AlertDialog.Builder(this).setTitle(audio ? "Audio track / language" : "Subtitles")
+                .setSingleChoiceItems(names.toArray(new String[0]), sel, (d, i) -> {
+                    d.dismiss();
+                    if (ids.get(i) == -99) {
+                        Intent in = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+                        startActivityForResult(in, 77);
+                    } else video.vlcSelect(audio, ids.get(i));
+                }).show();
+    }
+
     private void audioMenu() {
+        if (video != null && video.isVlc()) { vlcTrackMenu(true); return; }
         if (player == null) return;
         try {
             MediaPlayer.TrackInfo[] ti = player.getTrackInfo();
@@ -284,6 +348,7 @@ public class PreviewActivity extends Activity {
     }
 
     private void subMenu() {
+        if (video != null && video.isVlc()) { vlcTrackMenu(false); return; }
         if (player == null) return;
         final java.util.List<Integer> idx = new java.util.ArrayList<>();
         final java.util.List<String> names = new java.util.ArrayList<>();
@@ -359,6 +424,7 @@ public class PreviewActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == 77 && res == RESULT_OK && data != null && data.getData() != null && video != null && video.isVlc()) { video.vlcAddSubtitle(data.getData()); return; }
         if (req != 77 || res != RESULT_OK || data == null || data.getData() == null || player == null) return;
         try {
             java.io.InputStream in = getContentResolver().openInputStream(data.getData());
@@ -502,10 +568,9 @@ public class PreviewActivity extends Activity {
             lit("shuffle", shuffle);
             toast(shuffle ? "Shuffle on" : "Shuffle off");
         }, "shuffle");
-        toolItem(Ico.LOOP, "Loop", v -> { loop = !loop; lit("loop", loop); toast(loop ? "Repeat this video" : "Repeat off"); }, "loop");
+        toolItem(Ico.LOOP, "Loop", v -> { loop = !loop; lit("loop", loop); toast(loop ? "Repeat this video" : "Repeat off"); if (bgOn) pushState(); }, "loop");
         toolItem(Ico.VOL, "Mute", v -> {
-            muted = !muted;
-            try { if (player != null) player.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
+            setMuted(!muted);
             ((Ico) ((LinearLayout) v).getChildAt(0)).setKind(muted ? Ico.MUTE : Ico.VOL);
             lit("mute", muted);
         }, "mute");
@@ -525,16 +590,11 @@ public class PreviewActivity extends Activity {
             new android.app.AlertDialog.Builder(this).setTitle("Speed").setItems(n, (d, i) -> { setSpeed(f[i]); toast("Speed " + f[i] + "×"); }).show();
         }, "speed");
         toolItem(Ico.PIP, "Mini player", v -> {
-            if (Build.VERSION.SDK_INT >= 26 && !webMode) { try { enterPip(); } catch (Exception e) { toast("Allow picture-in-picture for this app in Android settings"); } }
+            goMiniWindow();
         }, "pip");
         toolItem(Ico.CAMERA, "Screenshot", v -> screenshot(), "shot");
         toolItem(Ico.FULL, "Rotate", v -> rotate(), "rot");
-        toolItem(Ico.HEADSET, "Background play", v -> {
-            bgPlay = !bgPlay;
-            Prefs.putBool(this, "bgplay", bgPlay);
-            lit("bg", bgPlay);
-            toast(bgPlay ? "Keeps playing when you leave the app" : "Pauses when you leave the app");
-        }, "bg");
+        toolItem(Ico.HEADSET, "Background audio", v -> goBackgroundAudio(), "bg");
         if (plUris != null && plUris.size() > 1) toolItem(Ico.LIST, "Playlist", v -> playlistMenu(), "pl");
         toolItem(Ico.SHARE, "Open with", v -> {
             try {
@@ -542,8 +602,6 @@ public class PreviewActivity extends Activity {
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Open with"));
             } catch (Exception e) { toast("No app can open this file"); }
         }, "ow");
-        bgPlay = Prefs.getBool(this, "bgplay", true);
-        lit("bg", bgPlay);
     }
 
     private void sleepMenu() {
@@ -565,6 +623,12 @@ public class PreviewActivity extends Activity {
     private final Runnable sleepRun = () -> { if (video != null) video.pause(); toast("Sleep timer: stopped"); finish(); };
 
     private void boostMenu() {
+        if (video != null && video.isVlc()) {
+            final String[] n = {"100% normal", "150%", "200%", "300%"};
+            final int[] v = {100, 150, 200, 300};
+            new android.app.AlertDialog.Builder(this).setTitle("Volume boost").setItems(n, (d, i) -> { video.vlcVolume(muted ? 0 : v[i]); toast("Volume " + n[i]); }).show();
+            return;
+        }
         if (player == null) return;
         final String[] n = {"Off", "+3 dB", "+6 dB", "+9 dB"};
         new android.app.AlertDialog.Builder(this).setTitle("Volume boost").setItems(n, (d, i) -> {
@@ -579,6 +643,7 @@ public class PreviewActivity extends Activity {
     }
 
     private void eqMenu() {
+        if (video != null && video.isVlc()) { toast("Equalizer is available with the normal decoder"); return; }
         if (player == null) return;
         try {
             if (eq == null) eq = new android.media.audiofx.Equalizer(0, player.getAudioSessionId());
@@ -675,6 +740,7 @@ public class PreviewActivity extends Activity {
         speed = sp;
         try {
             if (player != null) player.setPlaybackParams(player.getPlaybackParams().setSpeed(sp));
+            if (video != null && video.isVlc()) video.vlcRate(sp);
         } catch (Exception ignored) { }
         if (speedBtn != null) speedBtn.setText(" " + (sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "×");
     }
@@ -895,6 +961,7 @@ public class PreviewActivity extends Activity {
         attachControls(audio);
         video.setOnPreparedListener(mp -> {
             player = mp;
+            vlcMode = false;
             spinner.setVisibility(View.GONE);
             mp.setLooping(false);
             try { mp.setVolume(muted ? 0f : 1f, muted ? 0f : 1f); } catch (Exception ignored) { }
@@ -904,7 +971,7 @@ public class PreviewActivity extends Activity {
             renderSeen = false;
             if (!audio) progress.postDelayed(() -> {
                 // picture never appeared (4K / HEVC / AV1 the phone cannot draw): switch to the compatibility player at the same second
-                if (!renderSeen && !webMode && video != null && video.isPlaying() && mp.getVideoWidth() > 0) webFallback(headers, video.getCurrentPosition() / 1000);
+                if (!renderSeen && !webMode && !vlcMode && video != null && video.isPlaying() && mp.getVideoWidth() > 0) startVlc(headers, video.getCurrentPosition());
             }, 3500);
             progress.removeCallbacks(tick);
             progress.post(tick);
@@ -921,13 +988,14 @@ public class PreviewActivity extends Activity {
                 cacheAndPlay(headers);
                 return true;
             }
-            webFallback(headers);
+            if (vlcMode) return true;
+            startVlc(headers, video.getCurrentPosition());
             return true;
         });
         video.setOnInfoListener((mp, what, extra) -> {
             if (what == 3) renderSeen = true; // MEDIA_INFO_VIDEO_RENDERING_START
             // 860 / 862: the phone cannot decode the picture / the sound of this file (VP9, AV1, …) → use the built-in browser engine
-            if ((what == 860 || what == 862) && !webMode) { webFallback(headers); return true; }
+            if ((what == 860 || what == 862) && !webMode && !vlcMode) { startVlc(headers, video.getCurrentPosition()); return true; }
             return false;
         });
         try {
@@ -936,6 +1004,28 @@ public class PreviewActivity extends Activity {
         } catch (Exception e) {
             say("Cannot start the preview.");
         }
+    }
+
+    private boolean vlcMode;
+
+    /** Universal engine (libVLC) inside this same player: used whenever the phone's own decoder cannot play a file. */
+    private void startVlc(final String headers, final int startMs) {
+        if (vlcMode || webMode) return;
+        vlcMode = true;
+        player = null;
+        spinner.setVisibility(View.VISIBLE);
+        if (hwBtn != null) hwBtn.setText("VLC");
+        final String hdr = headers;
+        boolean ok = video.playVlc(Uri.parse(uri), uri.startsWith("http") ? headerMap(hdr) : null, startMs, () -> {
+            spinner.setVisibility(View.GONE);
+            renderSeen = true;
+            if (speed != 1f) setSpeed(speed);
+            if (muted) video.vlcVolume(0);
+            startBg();
+            kick();
+        }, () -> { vlcMode = false; webFallback(hdr, video.getCurrentPosition() / 1000); });
+        if (!ok) { vlcMode = false; webFallback(hdr, startMs / 1000); }
+        else toast("Playing with the built-in VLC engine");
     }
 
     /** Formats the phone's own player cannot decode (VP9 / AV1 .webm, some .mkv, Opus): the web engine plays them in software. */
@@ -1131,6 +1221,7 @@ public class PreviewActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         if (video != null && video.isPlaying() && !audioOnly && Build.VERSION.SDK_INT >= 26 && !webMode && Prefs.getBool(this, "autopip", true)) {
+            curMode = "pip"; pushState();
             try { enterPip(); } catch (Exception ignored) { }
         }
     }
@@ -1138,6 +1229,7 @@ public class PreviewActivity extends Activity {
     private void enterPip() {
         int w = 16, h = 9;
         if (player != null && player.getVideoWidth() > 0 && player.getVideoHeight() > 0) { w = player.getVideoWidth(); h = player.getVideoHeight(); }
+        else if (video != null && video.getVideoW() > 0 && video.getVideoH() > 0) { w = video.getVideoW(); h = video.getVideoH(); }
         android.util.Rational r = new android.util.Rational(Math.max(1, Math.min(w, h * 2)), Math.max(1, Math.min(h, w * 2)));
         enterPictureInPictureMode(new android.app.PictureInPictureParams.Builder().setAspectRatio(r).build());
     }
@@ -1148,7 +1240,7 @@ public class PreviewActivity extends Activity {
         inPip = in;
         if (topWrap != null) topWrap.setVisibility(in ? View.GONE : View.VISIBLE);
         if (panel != null && in) panel.setVisibility(View.GONE);
-        if (!in) showControls(true);
+        if (!in) { showControls(true); curMode = "audio"; if (bgOn) pushState(); }
     }
 
     @Override

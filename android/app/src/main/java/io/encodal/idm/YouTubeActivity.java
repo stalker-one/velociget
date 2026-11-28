@@ -57,7 +57,12 @@ public class YouTubeActivity extends Activity {
             + "html.idm-pip body *{contain:none!important;transform:none!important;filter:none!important}"
             + "html.idm-pip body{overflow:hidden!important}"
             + "html.idm-pip .ytp-chrome-top,html.idm-pip .ytp-chrome-bottom,html.idm-pip .ytp-gradient-top,html.idm-pip .ytp-gradient-bottom,html.idm-pip .ytp-pause-overlay,html.idm-pip .ytp-ce-element,html.idm-pip .ytp-cued-thumbnail-overlay,html.idm-pip .player-controls-background-container,html.idm-pip .player-controls-content,html.idm-pip .ytp-overlays-container,html.idm-pip .ytp-spinner,html.idm-pip .ytp-bezel,html.idm-pip .ytp-autonav-endscreen,html.idm-pip .ytp-endscreen-content,html.idm-pip [class*=player-controls]{display:none!important}"
-            + "html.idm-pip body>*{visibility:hidden!important}html.idm-pip video{visibility:visible!important}';"
+            + "html.idm-pip body>*{visibility:hidden!important}html.idm-pip video{visibility:visible!important}"
+            + "@media (max-height:320px) and (max-width:600px){html video{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:2147483647!important;background:#000!important;object-fit:contain!important}"
+            + "html body *{contain:none!important;transform:none!important;filter:none!important}"
+            + "html body{overflow:hidden!important}"
+            + "html .ytp-chrome-top,html .ytp-chrome-bottom,html .ytp-gradient-top,html .ytp-gradient-bottom,html .ytp-pause-overlay,html .ytp-ce-element,html .ytp-cued-thumbnail-overlay,html .player-controls-background-container,html .player-controls-content,html .ytp-overlays-container,html .ytp-spinner,html .ytp-bezel,html .ytp-autonav-endscreen,html .ytp-endscreen-content,html [class*=player-controls]{display:none!important}"
+            + "html body>*{visibility:hidden!important}html video{visibility:visible!important}}';"
             + "document.documentElement.appendChild(st);"
             // the page believes it is always visible, so it never pauses in the background
             + "try{Object.defineProperty(document,'hidden',{get:function(){return false}});Object.defineProperty(document,'visibilityState',{get:function(){return 'visible'}});}catch(e){}"
@@ -115,7 +120,7 @@ public class YouTubeActivity extends Activity {
         titleView.setPadding(dp(10), 0, dp(6), 0);
         top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(ibtn(Ico.DOWNLOAD, 0xFF60A5FA, v -> download()));
-        headBtn = ibtn(Ico.HEADSET, bgWanted() ? 0xFF34D399 : 0xFF9CA3AF, v -> toggleBg());
+        headBtn = ibtn(Ico.HEADSET, bgWanted() ? 0xFF34D399 : 0xFF9CA3AF, v -> goBackgroundAudio());
         top.addView(headBtn);
         top.addView(ibtn(Ico.PIP, 0xFFFFFFFF, v -> enterPip()));
         top.addView(ibtn(Ico.REFRESH, 0xFFFFFFFF, v -> wv.loadUrl("https://m.youtube.com/")));
@@ -223,7 +228,25 @@ public class YouTubeActivity extends Activity {
 
         rx = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
-                if (BgPlayService.CLOSE.equals(i.getAction())) { finish(); return; }
+                String a = i.getAction();
+                if (BgPlayService.CLOSE.equals(a)) { finish(); return; }
+                if (BgPlayService.NEXT.equals(a)) {
+                    wv.evaluateJavascript("(function(){var b=document.querySelector('.ytp-next-button,button[aria-label*=Next],.player-controls-middle button[aria-label*=Next]');if(b&&b.offsetParent!==null){b.click();return}var v=document.querySelector('video');if(v&&v.duration)v.currentTime=v.duration-0.2})()", null);
+                    return;
+                }
+                if (BgPlayService.MUTE.equals(a)) {
+                    ytMuted = !ytMuted;
+                    try { if (bgMp != null) bgMp.setVolume(ytMuted ? 0f : 1f, ytMuted ? 0f : 1f); } catch (Exception ignored) { }
+                    wv.evaluateJavascript("var v=document.querySelector('video');if(v)v.muted=" + ytMuted, null);
+                    pushState();
+                    return;
+                }
+                if (BgPlayService.LOOP.equals(a)) {
+                    ytLoop = !ytLoop;
+                    wv.evaluateJavascript("var v=document.querySelector('video');if(v)v.loop=" + ytLoop, null);
+                    pushState();
+                    return;
+                }
                 if (nativeOn && bgMp != null) {
                     try { if (bgMp.isPlaying()) bgMp.pause(); else bgMp.start(); } catch (Exception ignored) { }
                     playing = bgMp.isPlaying();
@@ -236,6 +259,9 @@ public class YouTubeActivity extends Activity {
         IntentFilter f = new IntentFilter();
         f.addAction(BgPlayService.TOGGLE);
         f.addAction(BgPlayService.CLOSE);
+        f.addAction(BgPlayService.NEXT);
+        f.addAction(BgPlayService.MUTE);
+        f.addAction(BgPlayService.LOOP);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(rx, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(rx, f);
 
         BgPlayService.target = YouTubeActivity.class;
@@ -245,6 +271,26 @@ public class YouTubeActivity extends Activity {
     }
 
     private Ico headBtn;
+    private boolean ytMuted, ytLoop;
+    private String ytMode = "audio";
+    private void pushState() { BgPlayService.state(this, ytMode, ytMuted, ytLoop); }
+
+    @Override
+    protected void onNewIntent(Intent in) {
+        super.onNewIntent(in);
+        setIntent(in);
+        if (in.getBooleanExtra("pipnow", false)) { in.removeExtra("pipnow"); enterPip(); }
+    }
+
+    /** Background AUDIO mode: leave the app now, sound only. */
+    private void goBackgroundAudio() {
+        ytMode = "audio";
+        Prefs.putBool(this, "bgplay", true);
+        headBtn.color(0xFF34D399);
+        pushState();
+        Toast.makeText(this, "Background audio — keeps playing with the screen off", Toast.LENGTH_SHORT).show();
+        moveTaskToBack(true);
+    }
 
     private Ico ibtn(int kind, int color, View.OnClickListener l) {
         Ico i = new Ico(this, kind);
@@ -301,6 +347,10 @@ public class YouTubeActivity extends Activity {
     private void enterPip() {
         if (Build.VERSION.SDK_INT < 26) { Toast.makeText(this, "Mini player needs Android 8 or newer", Toast.LENGTH_SHORT).show(); return; }
         try {
+            ytMode = "pip";
+            pushState();
+            // style the page for the small window BEFORE it shrinks: no flash of YouTube controls, no waiting for the callback
+            wv.evaluateJavascript("window.__pip=1;window.__userPause=0;document.documentElement.classList.add('idm-pip');var v=document.querySelector('video');if(v&&v.paused)v.play()", null);
             pipParams();
             enterPictureInPictureMode(new PictureInPictureParams.Builder().setAspectRatio(new Rational(Math.max(1, Math.min(vw, vh * 2)), Math.max(1, vh))).build());
         } catch (Exception e) {
@@ -444,6 +494,7 @@ public class YouTubeActivity extends Activity {
         super.onPictureInPictureModeChanged(inPip, c);
         top.setVisibility(inPip ? View.GONE : View.VISIBLE);
         bar.setVisibility(View.GONE);
+        if (!inPip) { ytMode = "audio"; pushState(); }
         final String js = "window.__pip=" + (inPip ? 1 : 0) + ";window.__userPause=0;document.documentElement.classList." + (inPip ? "add" : "remove") + "('idm-pip');window.dispatchEvent(new Event('resize'));var v=document.querySelector('video');if(v&&" + inPip + "&&v.paused&&!window.__userPause)v.play()";
         wv.evaluateJavascript(js, null);
         wv.postDelayed(() -> { if (wv != null) wv.evaluateJavascript(js, null); }, 400);

@@ -53,10 +53,16 @@ android {
         checkReleaseBuilds false
         abortOnError false
     }
+    packagingOptions { jniLibs { pickFirsts += ['**/libc++_shared.so'] } }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+// libVLC: the VLC engine inside my own player, so every format (mkv, HEVC, AC3, DTS, flv, avi, ts…) plays here
+dependencies {
+    implementation 'org.videolan.android:libvlc-all:3.6.0'
 }
 
 // The same download engine as the Windows app (yt-dlp), running inside the Android app.
