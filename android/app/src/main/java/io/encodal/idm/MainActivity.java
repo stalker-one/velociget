@@ -106,7 +106,7 @@ public class MainActivity extends Activity {
         SUB = dark ? 0xFF93A0B8 : 0xFF64748B;
         LINE = dark ? 0xFF22304A : 0xFFE2E8F0;
         FIELD = dark ? 0xFF0E1626 : 0xFFF8FAFC;
-        getWindow().setStatusBarColor(0xFF1D4ED8);
+        getWindow().setStatusBarColor(0xFF1E1B4B);
         getWindow().setNavigationBarColor(CARD);
 
         Store.load(this, DownloadService.ITEMS);
@@ -171,24 +171,44 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        // header
+        // hero header: brand mark, title, live stats
         LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(18), dp(14), dp(18), dp(16));
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF1D4ED8, 0xFF3B82F6});
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setPadding(dp(18), dp(16), dp(18), dp(18));
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF1E1B4B, 0xFF4F46E5, 0xFF0EA5E9});
+        g.setCornerRadii(new float[]{0, 0, 0, 0, dp(26), dp(26), dp(26), dp(26)});
         head.setBackground(g);
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageDrawable(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{
+                getDrawable(R.drawable.ic_bg), getDrawable(R.drawable.ic_fg)}));
+        logo.setClipToOutline(true);
+        logo.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(13)); }
+        });
+        logo.setScaleType(ImageView.ScaleType.FIT_XY);
+        LinearLayout.LayoutParams lgp = new LinearLayout.LayoutParams(dp(46), dp(46));
+        lgp.rightMargin = dp(12);
+        top.addView(logo, lgp);
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        TextView t = text("IDM By Encodal", 20, Color.WHITE, true);
-        TextView st = text("Fast segmented downloads", 12, 0xCCFFFFFF, false);
-        titles.addView(t);
-        titles.addView(st);
-        head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        totalSpeed = text("0 B/s", 15, Color.WHITE, true);
-        totalSpeed.setPadding(dp(12), dp(6), dp(12), dp(6));
-        totalSpeed.setBackground(rect(0x33FFFFFF, 20, 0));
-        head.addView(totalSpeed);
+        titles.addView(text("IDM By Encodal", 21, Color.WHITE, true));
+        titles.addView(text("Fast segmented downloads", 12, 0xCCFFFFFF, false));
+        top.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        head.addView(top, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        totalSpeed = text("0 B/s", 16, Color.WHITE, true);
+        statActive = text("0", 16, Color.WHITE, true);
+        statDone = text("0", 16, Color.WHITE, true);
+        stats.addView(statTile("Speed", totalSpeed, false));
+        stats.addView(statTile("Active", statActive, true));
+        stats.addView(statTile("Completed", statDone, true));
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(-1, -2);
+        stp.topMargin = dp(16);
+        head.addView(stats, stp);
         root.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
         ScrollView sv = new ScrollView(this);
@@ -202,7 +222,8 @@ public class MainActivity extends Activity {
 
         // link card
         LinearLayout lc = card();
-        lc.addView(text("New download", 13, SUB, true));
+        lc.addView(text("Add a download", 15, TXT, true));
+        lc.addView(text("Paste a link, or share one from any app", 12, SUB, false));
         urlField = new EditText(this);
         urlField.setHint("Paste a direct download link");
         urlField.setHintTextColor(SUB);
@@ -260,11 +281,6 @@ public class MainActivity extends Activity {
         fPass = field("Password", false);
         fPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         adv.addView(fRef); adv.addView(fCookie); adv.addView(fUa); adv.addView(fHeaders); adv.addView(fUser); adv.addView(fPass);
-        row2.addView(pill("Batch / pattern", PRIMARY, false, v -> showBatch()));
-        row2.addView(pill("Browse & grab", PRIMARY, false, v -> {
-            String u = firstUrl(urlField.getText().toString());
-            startActivity(new Intent(this, BrowserActivity.class).putExtra("url", u == null ? "" : u));
-        }));
         row2.addView(pill("Advanced ▾", SUB, false, v -> adv.setVisibility(adv.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)));
         lc.addView(row2, new LinearLayout.LayoutParams(-1, -2));
         lc.addView(adv, new LinearLayout.LayoutParams(-1, -2));
@@ -291,14 +307,35 @@ public class MainActivity extends Activity {
         lc.addView(cr, crp);
         styleChips();
 
-        TextView go = text("Start download", 15, Color.WHITE, true);
+        LinearLayout go = new LinearLayout(this);
         go.setGravity(Gravity.CENTER);
-        go.setBackground(rect(PRIMARY, 12, 0));
+        GradientDrawable gg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF4F46E5, 0xFF0EA5E9});
+        gg.setCornerRadius(dp(14));
+        go.setBackground(gg);
+        Ico goIc = new Ico(this, Ico.DOWNLOAD);
+        goIc.color(Color.WHITE);
+        go.addView(goIc, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView goT = text("Start download", 15, Color.WHITE, true);
+        goT.setPadding(dp(8), 0, 0, 0);
+        go.addView(goT);
         go.setOnClickListener(v -> start(urlField.getText().toString().trim()));
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, dp(46));
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, dp(50));
         gp.topMargin = dp(14);
         lc.addView(go, gp);
         body.addView(lc);
+
+        LinearLayout tiles = new LinearLayout(this);
+        tiles.addView(tile(Ico.GLOBE, 0xFF0EA5E9, "Browse & grab", v -> {
+            String u = firstUrl(urlField.getText().toString());
+            startActivity(new Intent(this, BrowserActivity.class).putExtra("url", u == null ? "" : u));
+        }));
+        tiles.addView(tile(Ico.YT, 0xFFEF4444, "YouTube", v -> Nav.go(this, Nav.HOME, Nav.YOUTUBE)));
+        tiles.addView(tile(Ico.FOLDER, 0xFFF59E0B, "Files", v -> Nav.go(this, Nav.HOME, Nav.FILES)));
+        tiles.addView(tile(Ico.LIST, 0xFF8B5CF6, "Batch", v -> showBatch()));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+        tlp.topMargin = dp(12);
+        tlp.leftMargin = -dp(4); tlp.rightMargin = -dp(4);
+        body.addView(tiles, tlp);
 
         // clipboard banner
         banner = new LinearLayout(this);
@@ -338,6 +375,25 @@ public class MainActivity extends Activity {
         srp.bottomMargin = dp(4);
         body.addView(sr, srp);
 
+        LinearLayout fr = new LinearLayout(this);
+        filterChips = new TextView[3];
+        String[] fn = {"All", "Active", "Done"};
+        for (int i = 0; i < 3; i++) {
+            final int fi = i;
+            TextView c = text(fn[i], 13, SUB, true);
+            c.setGravity(Gravity.CENTER);
+            c.setPadding(dp(16), dp(6), dp(16), dp(6));
+            c.setOnClickListener(v -> { filter = fi; styleFilters(); refresh(); });
+            LinearLayout.LayoutParams fl = new LinearLayout.LayoutParams(-2, -2);
+            fl.rightMargin = dp(8);
+            fr.addView(c, fl);
+            filterChips[i] = c;
+        }
+        styleFilters();
+        LinearLayout.LayoutParams frp = new LinearLayout.LayoutParams(-1, -2);
+        frp.bottomMargin = dp(10);
+        body.addView(fr, frp);
+
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         body.addView(list, new LinearLayout.LayoutParams(-1, -2));
@@ -347,6 +403,57 @@ public class MainActivity extends Activity {
         empty.setPadding(dp(16), dp(36), dp(16), dp(36));
         body.addView(empty, new LinearLayout.LayoutParams(-1, -2));
         return root;
+    }
+
+    private TextView statActive, statDone;
+    private int filter; // 0 all, 1 active, 2 done
+    private TextView[] filterChips;
+
+    private LinearLayout statTile(String label, TextView value, boolean gap) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setPadding(dp(12), dp(9), dp(12), dp(9));
+        t.setBackground(rect(0x26FFFFFF, 14, 0x33FFFFFF));
+        t.addView(text(label, 11, 0xCCFFFFFF, false));
+        t.addView(value);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+        if (gap) lp.leftMargin = dp(8);
+        t.setLayoutParams(lp);
+        return t;
+    }
+
+    private View tile(int kind, int color, String label, View.OnClickListener l) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(4), dp(12), dp(4), dp(10));
+        t.setBackground(rect(CARD, 14, LINE));
+        Ico ic = new Ico(this, kind);
+        ic.color(color);
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        gd.setColor((color & 0x00FFFFFF) | (dark ? 0x33000000 : 0x1A000000));
+        ic.setBackground(gd);
+        ic.setPadding(dp(9), dp(9), dp(9), dp(9));
+        t.addView(ic, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        TextView tv = text(label, 12, TXT, true);
+        tv.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.topMargin = dp(6);
+        t.addView(tv, lp);
+        t.setOnClickListener(l);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
+        tp.leftMargin = dp(4); tp.rightMargin = dp(4);
+        t.setLayoutParams(tp);
+        return t;
+    }
+
+    private void styleFilters() {
+        for (int i = 0; i < filterChips.length; i++) {
+            boolean on = i == filter;
+            filterChips[i].setBackground(rect(on ? PRIMARY : CARD, 16, on ? PRIMARY : LINE));
+            filterChips[i].setTextColor(on ? Color.WHITE : SUB);
+        }
     }
 
     private void styleChips() {
@@ -438,12 +545,16 @@ public class MainActivity extends Activity {
             }
             pos++;
             bind(c, now);
+            boolean isActive = it.state == Item.DOWNLOADING || it.state == Item.QUEUED;
+            c.root.setVisibility(filter == 0 || (filter == 1 && isActive) || (filter == 2 && it.state == Item.DONE) ? View.VISIBLE : View.GONE);
             if (it.state == Item.DOWNLOADING) { total += it.speed; active++; }
             else if (it.state == Item.QUEUED) active++;
             if (it.state == Item.DONE) done++;
         }
 
         totalSpeed.setText(sizeText((long) total) + "/s");
+        statActive.setText(String.valueOf(active));
+        statDone.setText(String.valueOf(done));
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         summary.setText(items.isEmpty() ? "Downloads" : "Downloads · " + active + " active · " + done + " done");
         clear.setVisibility(done > 0 ? View.VISIBLE : View.GONE);

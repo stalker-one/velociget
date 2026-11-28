@@ -15,7 +15,7 @@ android {
         targetSdk 34
         // minutes since 1970: always higher than any older build, so Android never sees a "downgrade"
         versionCode vcode
-        versionName '0.6.0'
+        versionName '0.7.0'
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a'
         }

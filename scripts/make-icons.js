@@ -31,8 +31,9 @@ function png(size) {
     const u = x / size, v = y / size;
     const shaft = u > 0.43 && u < 0.57 && v > 0.2 && v < 0.55;
     const head = v >= 0.5 && v <= 0.72 && Math.abs(u - 0.5) <= (0.72 - v) * 1.05 + 0.0;
-    const base = v > 0.78 && v < 0.86 && u > 0.24 && u < 0.76;
-    return shaft || head || base;
+    const row = v > 0.77 && v < 0.85;
+    const segs = row && ((u > 0.26 && u < 0.43) || (u > 0.47 && u < 0.56) || (u > 0.60 && u < 0.74));
+    return shaft || head || segs;
   };
   for (let y = 0; y < size; y++) {
     raw[y * (size * 4 + 1)] = 0;
@@ -45,7 +46,10 @@ function png(size) {
         if (inArrow(px, py)) { ar++; rr += 255; gg += 255; bb += 255; }
         else {
           const t = (px + py) / (2 * size);
-          rr += 37 + (6 - 37) * t; gg += 99 + (182 - 99) * t; bb += 235 + (212 - 235) * t;
+          // brand gradient: deep indigo -> indigo -> cyan
+          const c0 = [30, 27, 75], c1 = [79, 70, 229], c2 = [34, 211, 238];
+          const k = t < 0.5 ? t * 2 : (t - 0.5) * 2, a0 = t < 0.5 ? c0 : c1, a1 = t < 0.5 ? c1 : c2;
+          rr += a0[0] + (a1[0] - a0[0]) * k; gg += a0[1] + (a1[1] - a0[1]) * k; bb += a0[2] + (a1[2] - a0[2]) * k;
         }
       }
       const o = y * (size * 4 + 1) + 1 + x * 4;
