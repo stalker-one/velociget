@@ -153,6 +153,7 @@ public class YouTubeActivity extends Activity {
                 if (changed) runOnUiThread(() -> {
                     BgPlayService.refresh(YouTubeActivity.this, pageTitle, playing);
                     pipParams();
+                    if (playing && bgWanted()) prefetchAudio();
                 });
             }
         }, "IDMYT");
@@ -337,30 +338,53 @@ public class YouTubeActivity extends Activity {
         if (nativeOn) stopNative(true);
     }
 
+    private volatile boolean prefetching;
+
+    /** Finds the audio stream of the current video in the background so that going to the background is instant. */
+    private void prefetchAudio() {
+        final String page = wv == null ? null : wv.getUrl();
+        if (page == null || page.equals(audioFor) || prefetching || !(page.contains("watch") || page.contains("youtu.be") || page.contains("shorts"))) return;
+        prefetching = true;
+        new Thread(() -> {
+            try {
+                Extractor.Info in = PyEngine.probe(this, page);
+                Extractor.Fmt best = null;
+                for (Extractor.Fmt f : in.fmts) {
+                    if (!f.audio || f.hls || f.url.isEmpty()) continue;
+                    boolean m4a = f.ext.equals("m4a") || f.ext.equals("mp4");
+                    boolean bm = best != null && (best.ext.equals("m4a") || best.ext.equals("mp4"));
+                    if (best == null || (m4a && !bm) || (m4a == bm && f.size > best.size)) best = f;
+                }
+                if (best == null) { lastErr = "no audio stream found"; }
+                else { audioUrl = best.url; audioHdr = best.headers; audioFor = page; lastErr = ""; }
+            } catch (Throwable e) {
+                lastErr = String.valueOf(e.getMessage());
+            }
+            prefetching = false;
+        }).start();
+    }
+
+    private volatile String lastErr = "";
+
     private void startNative() {
         final String page = wv == null ? null : wv.getUrl();
         if (page == null || !(page.contains("watch") || page.contains("youtu.be") || page.contains("shorts"))) return;
         resolving = true;
         final double at0 = lastPos;
         new Thread(() -> {
-            try {
-                if (!page.equals(audioFor)) {
-                    Extractor.Info in = PyEngine.probe(this, page);
-                    Extractor.Fmt best = null;
-                    for (Extractor.Fmt f : in.fmts) {
-                        if (!f.audio || f.hls || f.url.isEmpty()) continue;
-                        boolean m4a = f.ext.equals("m4a") || f.ext.equals("mp4");
-                        if (best == null || (m4a && !(best.ext.equals("m4a") || best.ext.equals("mp4"))) || (m4a == (best.ext.equals("m4a") || best.ext.equals("mp4")) && f.size > best.size)) best = f;
-                    }
-                    if (best == null) { resolving = false; return; }
-                    audioFor = page;
-                    audioUrl = best.url;
-                    audioHdr = best.headers;
-                }
-                runOnUiThread(() -> beginNative(Math.max(lastPos, at0)));
-            } catch (Exception e) {
-                resolving = false;
+            long t0 = System.currentTimeMillis();
+            while (!page.equals(audioFor) && System.currentTimeMillis() - t0 < 25000) {
+                if (!prefetching) prefetchAudio();
+                try { Thread.sleep(400); } catch (InterruptedException ignored) { }
+                if (!prefetching && !page.equals(audioFor) && !lastErr.isEmpty()) break;
             }
+            if (!page.equals(audioFor)) {
+                resolving = false;
+                final String why = lastErr;
+                runOnUiThread(() -> Toast.makeText(this, "Background audio could not start (" + why + ") — the video keeps playing in the page instead", Toast.LENGTH_LONG).show());
+                return;
+            }
+            runOnUiThread(() -> beginNative(Math.max(lastPos, at0)));
         }).start();
     }
 

@@ -45,7 +45,9 @@ public class PreviewActivity extends Activity {
     private ProgressBar spinner;
     private TextView message;
     private PlayerView video;
-    private boolean webMode, inPip, bgOn, audioOnly;
+    private Ico ccTop, auTop, pipTop, moreTop;
+    private boolean isImage, slide;
+    private boolean webMode, inPip, bgOn, audioOnly, renderSeen;
     private BroadcastReceiver rx;
 
     private void startBg() {
@@ -114,14 +116,16 @@ public class PreviewActivity extends Activity {
 
         bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        bar.setPadding(dp(4), dp(4), dp(4), dp(14));
+        bar.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xCC000000, 0x00000000}));
         Ico close = new Ico(this, Ico.BACK);
         close.setOnClickListener(v -> finish());
-        bar.addView(close, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        bar.addView(close, new LinearLayout.LayoutParams(dp(42), dp(40)));
         TextView t = new TextView(this);
         t.setText(title == null || title.isEmpty() ? "Preview" : title);
         t.setTextColor(Color.WHITE);
         t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         t.setSingleLine(true);
         t.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         titleView = t;
@@ -130,22 +134,22 @@ public class PreviewActivity extends Activity {
             TextView pv = new Ico(this, Ico.PREV);
             pv.setPadding(dp(14), dp(6), dp(14), dp(6));
             pv.setOnClickListener(v -> step(-1));
-            bar.addView(pv, new LinearLayout.LayoutParams(dp(48), dp(44)));
+            bar.addView(pv, new LinearLayout.LayoutParams(dp(42), dp(40)));
             TextView nx = new Ico(this, Ico.NEXT);
             nx.setPadding(dp(14), dp(6), dp(14), dp(6));
             nx.setOnClickListener(v -> step(1));
-            bar.addView(nx, new LinearLayout.LayoutParams(dp(48), dp(44)));
+            bar.addView(nx, new LinearLayout.LayoutParams(dp(42), dp(40)));
         }
-        Ico ccTop = new Ico(this, Ico.CC);
+        ccTop = new Ico(this, Ico.CC);
         ccTop.setOnClickListener(v -> subMenu());
-        bar.addView(ccTop, new LinearLayout.LayoutParams(dp(48), dp(44)));
-        Ico auTop = new Ico(this, Ico.TRACKS);
+        bar.addView(ccTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        auTop = new Ico(this, Ico.TRACKS);
         auTop.setOnClickListener(v -> audioMenu());
-        bar.addView(auTop, new LinearLayout.LayoutParams(dp(48), dp(44)));
-        Ico pipTop = new Ico(this, Ico.PIP);
+        bar.addView(auTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        pipTop = new Ico(this, Ico.PIP);
         pipTop.setOnClickListener(v -> { if (Build.VERSION.SDK_INT >= 26 && !webMode) { try { enterPip(); } catch (Exception e) { say("Allow picture-in-picture for this app in Android settings"); } } });
-        bar.addView(pipTop, new LinearLayout.LayoutParams(dp(48), dp(44)));
-        Ico moreTop = new Ico(this, Ico.MORE);
+        bar.addView(pipTop, new LinearLayout.LayoutParams(dp(42), dp(40)));
+        moreTop = new Ico(this, Ico.MORE);
         moreTop.setOnClickListener(v -> new android.app.AlertDialog.Builder(this).setItems(
                 plUris != null && plUris.size() > 1 ? new String[]{"Playlist", "Open with…"} : new String[]{"Open with…"}, (d, w) -> {
             if (plUris != null && plUris.size() > 1 && w == 0) { playlistMenu(); return; }
@@ -154,8 +158,7 @@ public class PreviewActivity extends Activity {
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK));
             } catch (Exception e) { say("No app can open this file"); }
         }).show());
-        bar.addView(moreTop, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        root.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        bar.addView(moreTop, new LinearLayout.LayoutParams(dp(36), dp(40)));
 
         stage = new FrameLayout(this);
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -177,7 +180,7 @@ public class PreviewActivity extends Activity {
         if (m.startsWith("video/") || m.startsWith("audio/") || ext.matches("mp4|m4v|webm|mkv|mov|3gp|mp3|m4a|aac|ogg|opus|wav|flac")) playMedia(headers, m.startsWith("audio/") || ext.matches("mp3|m4a|aac|ogg|opus|wav|flac"));
         else if (m.startsWith("image/") || ext.matches("jpg|jpeg|png|gif|webp|bmp")) showImage(headers);
         else if (m.startsWith("text/") || ext.matches("txt|log|md|json|csv|xml")) showText(headers);
-        else say("This file type cannot be previewed here.\nTap \"Open with…\" to use another app.");
+        else { imageBar(); say("This file type cannot be previewed here.\nTap \"Open with…\" to use another app."); }
     }
 
 
@@ -282,7 +285,7 @@ public class PreviewActivity extends Activity {
         subView.setPadding(dp(10), dp(4), dp(10), dp(4));
         subView.setVisibility(View.GONE);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        lp.bottomMargin = dp(120);
+        lp.bottomMargin = dp(150);
         stage.addView(subView, lp);
         player.setOnTimedTextListener((mp, text) -> runOnUiThread(() -> {
             String t = text == null ? "" : text.getText();
@@ -352,9 +355,18 @@ public class PreviewActivity extends Activity {
 
     /** Next / previous file of the playlist (files opened from the Files screen). */
     private void step(int d) {
-        if (plUris == null || video == null) return;
+        if (plUris == null) return;
         int n = plIdx + d;
         if (n < 0 || n >= plUris.size()) return;
+        String nm = plMimes == null || n >= plMimes.size() ? "" : plMimes.get(n);
+        boolean nextVideo = nm.startsWith("video/") || nm.startsWith("audio/");
+        if (video == null || webMode || !nextVideo) { // pictures (or a change between picture and video): open the neighbour in a fresh screen
+            Intent i = new Intent(getIntent()).putExtra("uri", plUris.get(n)).putExtra("mime", nm).putExtra("title", plNames.get(n)).putExtra("pl_index", n).putExtra("slide", slide);
+            startActivity(i);
+            finish();
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+            return;
+        }
         plIdx = n;
         uri = plUris.get(n);
         mime = plMimes.get(n);
@@ -399,18 +411,19 @@ public class PreviewActivity extends Activity {
     /** Rounded label button with a line icon (used for the player shortcuts). */
     private TextView pill(int kind, String label, View.OnClickListener l) {
         TextView t = new TextView(this);
-        t.setText("   " + label);
+        t.setText(" " + label);
         t.setTextColor(Color.WHITE);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setSingleLine(true);
         t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(30), dp(8), dp(14), dp(8));
+        t.setPadding(dp(10), dp(6), dp(10), dp(6));
         GradientDrawable g = new GradientDrawable();
         g.setColor(0x33FFFFFF);
         g.setCornerRadius(dp(20));
         t.setBackground(g);
         final Ico ic = new Ico(this, kind);
-        t.setCompoundDrawablePadding(0);
+        t.setCompoundDrawablePadding(dp(2));
         final android.graphics.drawable.Drawable d = new android.graphics.drawable.Drawable() {
             @Override public void draw(Canvas c) {
                 c.save();
@@ -424,11 +437,11 @@ public class PreviewActivity extends Activity {
             @Override public void setColorFilter(android.graphics.ColorFilter cf) { }
             @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
         };
-        d.setBounds(0, 0, dp(22), dp(22));
+        d.setBounds(0, 0, dp(18), dp(18));
         t.setCompoundDrawables(d, null, null, null);
         t.setOnClickListener(x -> { l.onClick(x); kick(); });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.setMargins(dp(4), dp(6), dp(4), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(34), 1);
+        lp.setMargins(dp(4), dp(4), dp(4), 0);
         t.setLayoutParams(lp);
         return t;
     }
@@ -440,9 +453,9 @@ public class PreviewActivity extends Activity {
 
     private void showControls(boolean on) {
         shown = on;
-        if (locked) { unlockBtn.setVisibility(on ? View.VISIBLE : View.GONE); panel.setVisibility(View.GONE); if (fullscreen) bar.setVisibility(View.GONE); return; }
+        if (locked) { unlockBtn.setVisibility(on ? View.VISIBLE : View.GONE); panel.setVisibility(View.GONE); bar.setVisibility(View.GONE); return; }
         panel.setVisibility(on ? View.VISIBLE : View.GONE);
-        bar.setVisibility(fullscreen && !on ? View.GONE : View.VISIBLE);
+        bar.setVisibility(on ? View.VISIBLE : View.GONE);
         unlockBtn.setVisibility(View.GONE);
         if (on) kick();
     }
@@ -452,7 +465,7 @@ public class PreviewActivity extends Activity {
         try {
             if (player != null) player.setPlaybackParams(player.getPlaybackParams().setSpeed(sp));
         } catch (Exception ignored) { }
-        if (speedBtn != null) speedBtn.setText("   " + (sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "×");
+        if (speedBtn != null) speedBtn.setText(" " + (sp == (int) sp ? String.valueOf((int) sp) : String.valueOf(sp)) + "×");
     }
 
     private void toast(String s) {
@@ -563,8 +576,8 @@ public class PreviewActivity extends Activity {
         // bottom panel
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackgroundColor(0xB3000000);
-        panel.setPadding(dp(10), dp(6), dp(10), dp(8));
+        panel.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0xE6000000, 0x00000000}));
+        panel.setPadding(dp(12), dp(24), dp(12), dp(8));
         LinearLayout t = new LinearLayout(this);
         t.setGravity(Gravity.CENTER_VERTICAL);
         cur = new TextView(this);
@@ -599,10 +612,10 @@ public class PreviewActivity extends Activity {
         TextView fwd = ctl("⏩", v -> seekBy(10000));
         TextView rot = ctl("⛶", v -> rotate());
         for (TextView x : new TextView[]{lockBtn, back, playBtn, fwd, muteBtn, rot}) {
-            int sz = x == playBtn ? 62 : 52;
+            int sz = x == playBtn ? 54 : 44;
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(sz), 1);
             if (x == playBtn) lp.setMargins(dp(6), 0, dp(6), 0);
-            x.setPadding(dp(x == playBtn ? 14 : 8), dp(x == playBtn ? 14 : 8), dp(x == playBtn ? 14 : 8), dp(x == playBtn ? 14 : 8));
+            x.setPadding(dp(8), dp(8), dp(8), dp(8));
             r.addView(x, lp);
         }
         // labelled shortcuts: subtitles, audio / language, speed, mini player
@@ -629,6 +642,7 @@ public class PreviewActivity extends Activity {
         unlockBtn.setVisibility(View.GONE);
         unlockBtn.setOnClickListener(v -> { locked = false; showControls(true); });
         stage.addView(unlockBtn, new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER_VERTICAL | Gravity.START));
+        stage.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
         if (audio) panel.setVisibility(View.VISIBLE);
         kick();
     }
@@ -687,6 +701,11 @@ public class PreviewActivity extends Activity {
             if (speed != 1f) setSpeed(speed);
             video.start();
             startBg();
+            renderSeen = false;
+            if (!audio) progress.postDelayed(() -> {
+                // picture never appeared (4K / HEVC / AV1 the phone cannot draw): switch to the compatibility player at the same second
+                if (!renderSeen && !webMode && video != null && video.isPlaying() && mp.getVideoWidth() > 0) webFallback(headers, video.getCurrentPosition() / 1000);
+            }, 3500);
             progress.removeCallbacks(tick);
             progress.post(tick);
             if (audio) say("♪");
@@ -702,6 +721,7 @@ public class PreviewActivity extends Activity {
             return true;
         });
         video.setOnInfoListener((mp, what, extra) -> {
+            if (what == 3) renderSeen = true; // MEDIA_INFO_VIDEO_RENDERING_START
             // 860 / 862: the phone cannot decode the picture / the sound of this file (VP9, AV1, …) → use the built-in browser engine
             if ((what == 860 || what == 862) && !webMode) { webFallback(headers); return true; }
             return false;
@@ -715,7 +735,9 @@ public class PreviewActivity extends Activity {
     }
 
     /** Formats the phone's own player cannot decode (VP9 / AV1 .webm, some .mkv, Opus): the web engine plays them in software. */
-    private void webFallback(final String headers) {
+    private void webFallback(final String headers) { webFallback(headers, 0); }
+
+    private void webFallback(final String headers, int startSec) {
         if (webMode) return;
         webMode = true;
         try { video.stopPlayback(); } catch (Exception ignored) { }
@@ -737,6 +759,7 @@ public class PreviewActivity extends Activity {
         stage.addView(wv, new FrameLayout.LayoutParams(-1, -1));
         Toast.makeText(this, "Compatibility player (software decoding)", Toast.LENGTH_SHORT).show();
         if (uri.startsWith("http")) wv.loadUrl(uri, headerMap(headers)); else wv.loadUrl(uri);
+        if (startSec > 0) wv.postDelayed(() -> wv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v){v.currentTime=" + startSec + "}})()", null), 1500);
         webView = wv;
     }
 
@@ -784,10 +807,50 @@ public class PreviewActivity extends Activity {
         }).start();
     }
 
+    /** Controls for pictures / text: just the top bar (title, counter, slideshow, share). */
+    private void imageBar() {
+        isImage = true;
+        ccTop.setVisibility(View.GONE);
+        auTop.setVisibility(View.GONE);
+        pipTop.setVisibility(View.GONE);
+        if (plUris != null && plUris.size() > 1) {
+            titleView.setText((plIdx + 1) + "/" + plUris.size() + "  " + (title == null ? "" : title));
+            final Ico sl = new Ico(this, Ico.SLIDE);
+            sl.color(slide ? 0xFF60A5FA : 0xFFFFFFFF);
+            sl.setOnClickListener(v -> {
+                slide = !slide;
+                sl.color(slide ? 0xFF60A5FA : 0xFFFFFFFF);
+                Toast.makeText(this, slide ? "Slideshow on — every 3 seconds" : "Slideshow off", Toast.LENGTH_SHORT).show();
+                progress.removeCallbacks(slideTick);
+                if (slide) progress.postDelayed(slideTick, 3000);
+            });
+            bar.addView(sl, bar.getChildCount() - 1, new LinearLayout.LayoutParams(dp(42), dp(40)));
+            if (getIntent().getBooleanExtra("slide", false)) { slide = true; sl.color(0xFF60A5FA); progress.postDelayed(slideTick, 3000); }
+        }
+        stage.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+    }
+
+    private final Runnable slideTick = new Runnable() {
+        @Override public void run() {
+            if (!slide) return;
+            if (plUris != null && plIdx < plUris.size() - 1) step(1); else slide = false;
+        }
+    };
+
     private void showImage(final String headers) {
         final ImageView iv = new ImageView(this);
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
         stage.addView(iv, 0, new FrameLayout.LayoutParams(-1, -1));
+        imageBar();
+        final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent e) { return true; }
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) { bar.setVisibility(bar.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); return true; }
+            @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
+                if (Math.abs(vx) > Math.abs(vy) * 1.2f && Math.abs(vx) > 700) { step(vx < 0 ? 1 : -1); return true; }
+                return false;
+            }
+        });
+        iv.setOnTouchListener((v, ev) -> gd.onTouchEvent(ev));
         new Thread(() -> {
             try {
                 final Bitmap bm;
@@ -820,6 +883,7 @@ public class PreviewActivity extends Activity {
     }
 
     private void showText(final String headers) {
+        imageBar();
         final TextView tv = new TextView(this);
         tv.setTextColor(0xFFE2E8F0);
         tv.setTypeface(Typeface.MONOSPACE);

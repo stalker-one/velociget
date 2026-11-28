@@ -3,6 +3,7 @@ package io.encodal.idm;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -26,6 +27,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.webkit.MimeTypeMap;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,43 +38,52 @@ import android.widget.Toast;
 import java.io.File;
 import java.text.DateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Every video, picture and audio file on the phone (grouped by folder) plus a full folder browser with hidden files.
- * Videos / Images / Audio use the media library; "Folders" reads the storage directly and needs "All files access".
+ * Files: downloads, every video / picture / audio file on the phone and a full folder browser (with hidden files).
+ * List or grid view, sorting, multi-select, share, recycle bin.
  */
 public class DeviceFilesActivity extends Activity {
-    private static final int VIDEO = 0, IMAGE = 1, AUDIO = 2, FOLDERS = 3, K_OTHER = 3, K_DIR = 4;
-    private static final String[] TABS = {"Videos", "Images", "Audio", "Folders"};
+    private static final int DOWNLOADS = 0, VIDEO = 1, IMAGE = 2, AUDIO = 3, FOLDERS = 4;
+    private static final int K_VIDEO = 1, K_IMAGE = 2, K_AUDIO = 3, K_OTHER = 5, K_DIR = 6;
+    private static final String[] TABS = {"Downloads", "Videos", "Images", "Audio", "Folders"};
+    private static final String[] SORTS = {"Date", "Name", "Size"};
 
     private static final class M {
-        String name = "", mime = "", folder = "";
-        long size, date, dur;
+        String name = "", mime = "", folder = "", path = "";
+        long size, date, dur, expires;
         Uri uri;
         File file;
         int kind;
+        Bin.Entry bin;
+        boolean sysTrash;
+
+        String key() { return uri != null ? uri.toString() : file != null ? file.getAbsolutePath() : name; }
     }
 
     private int BG, CARD, TXT, SUB, LINE, FIELD, PRIMARY = 0xFF2563EB;
-    private int tab = VIDEO;
-    private boolean hidden;
-    private String openFolder; // media tabs: null = folder overview
+    private int tab = DOWNLOADS, sortKey = 0;
+    private boolean asc, grid, hidden, binMode, selMode;
+    private String openFolder; // media tabs: null = folder overview, "*" = all
     private File dir;          // folders tab: null = storage list
     private String query = "";
-    private LinearLayout content, chips;
+    private LinearLayout content, chips, headRight;
     private TextView title, sub;
     private final List<M> media = new ArrayList<>();
+    private final Map<String, M> selected = new LinkedHashMap<>();
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
-    private final android.util.LruCache<String, Bitmap> cache = new android.util.LruCache<>(120);
+    private final android.util.LruCache<String, Bitmap> cache = new android.util.LruCache<>(160);
     private int gen;
 
     @Override
@@ -84,6 +96,9 @@ public class DeviceFilesActivity extends Activity {
         SUB = dk ? 0xFF93A0B8 : 0xFF64748B;
         LINE = dk ? 0xFF22304A : 0xFFE2E8F0;
         FIELD = dk ? 0xFF0E1626 : 0xFFF8FAFC;
+        sortKey = Prefs.getInt(this, "dsort", 0);
+        asc = Prefs.getBool(this, "dasc", false);
+        grid = Prefs.getBool(this, "dgrid", false);
         getWindow().setStatusBarColor(0xFF1D4ED8);
         getWindow().setNavigationBarColor(CARD);
 
@@ -93,25 +108,27 @@ public class DeviceFilesActivity extends Activity {
 
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(dp(18), dp(14), dp(10), dp(14));
+        head.setPadding(dp(16), dp(10), dp(6), dp(10));
         head.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xFF1D4ED8, 0xFF3B82F6}));
         LinearLayout tt = new LinearLayout(this);
         tt.setOrientation(LinearLayout.VERTICAL);
-        title = tv("Files", 20, Color.WHITE, true);
-        sub = tv("All videos, pictures and audio on this phone", 12, 0xCCFFFFFF, false);
+        title = tv("Files", 19, Color.WHITE, true);
+        sub = tv("Downloads, videos, pictures and audio", 11, 0xCCFFFFFF, false);
+        sub.setSingleLine(true);
         tt.addView(title);
         tt.addView(sub);
         head.addView(tt, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView mine = tv("Downloads", 12, Color.WHITE, true);
-        mine.setPadding(dp(12), dp(7), dp(12), dp(7));
-        mine.setBackground(rect(0x33FFFFFF, 20, 0));
-        mine.setOnClickListener(v -> startActivity(new Intent(this, FilesActivity.class)));
-        head.addView(mine);
+        headRight = new LinearLayout(this);
+        headRight.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(headRight);
         root.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
         chips = new LinearLayout(this);
         chips.setPadding(dp(12), dp(10), dp(12), dp(2));
-        root.addView(chips, new LinearLayout.LayoutParams(-1, -2));
+        hs.addView(chips);
+        root.addView(hs, new LinearLayout.LayoutParams(-1, -2));
 
         EditText search = new EditText(this);
         search.setHint("Search");
@@ -119,7 +136,7 @@ public class DeviceFilesActivity extends Activity {
         search.setTextColor(TXT);
         search.setSingleLine(true);
         search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        search.setPadding(dp(14), dp(9), dp(14), dp(9));
+        search.setPadding(dp(14), dp(8), dp(14), dp(8));
         search.setBackground(rect(CARD, 12, LINE));
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b2, int c) { }
@@ -140,6 +157,7 @@ public class DeviceFilesActivity extends Activity {
         setContentView(root);
         if (!hasMedia()) askMedia();
         drawChips();
+        drawHead();
     }
 
     @Override
@@ -149,12 +167,12 @@ public class DeviceFilesActivity extends Activity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int rc, String[] p, int[] r) {
-        reload();
-    }
+    public void onRequestPermissionsResult(int rc, String[] p, int[] r) { reload(); }
+
+    // ---------------------------------------------------------------- permissions
 
     private boolean allFiles() {
-        return Build.VERSION.SDK_INT >= 30 ? Environment.isExternalStorageManager() : checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        return Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager();
     }
 
     private boolean hasMedia() {
@@ -172,34 +190,100 @@ public class DeviceFilesActivity extends Activity {
         else requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 100);
     }
 
+    private void askAllFiles() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        }
+    }
+
+    // ---------------------------------------------------------------- header / chips
+
+    private Ico hbtn(int kind, View.OnClickListener l) {
+        Ico i = new Ico(this, kind);
+        i.setOnClickListener(l);
+        i.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
+        return i;
+    }
+
+    private void drawHead() {
+        headRight.removeAllViews();
+        if (selMode) {
+            headRight.addView(hbtn(Ico.SELECT, v -> selectAll()));
+            if (binMode) {
+                headRight.addView(hbtn(Ico.RESTORE, v -> binRestore(new ArrayList<>(selected.values()))));
+                headRight.addView(hbtn(Ico.TRASH, v -> binPurge(new ArrayList<>(selected.values()))));
+            } else {
+                headRight.addView(hbtn(Ico.SHARE, v -> shareMany(new ArrayList<>(selected.values()))));
+                headRight.addView(hbtn(Ico.TRASH, v -> deleteMany(new ArrayList<>(selected.values()))));
+            }
+            headRight.addView(hbtn(Ico.CLOSE, v -> endSelect()));
+            title.setText(selected.size() + " selected");
+            return;
+        }
+        if (binMode) {
+            headRight.addView(hbtn(Ico.SELECT, v -> { selMode = true; drawHead(); render(); }));
+            headRight.addView(hbtn(Ico.TRASH, v -> emptyBin()));
+            headRight.addView(hbtn(Ico.CLOSE, v -> { binMode = false; openFolder = null; drawHead(); reload(); }));
+            return;
+        }
+        headRight.addView(hbtn(Ico.SORT, v -> sortMenu()));
+        headRight.addView(hbtn(grid ? Ico.LIST : Ico.GRID, v -> { grid = !grid; Prefs.putBool(this, "dgrid", grid); drawHead(); render(); }));
+        headRight.addView(hbtn(Ico.SELECT, v -> { selMode = true; drawHead(); render(); }));
+        headRight.addView(hbtn(Ico.RESTORE, v -> { binMode = true; selected.clear(); drawHead(); reload(); }).color(0xFFFFFFFF));
+    }
+
     private void drawChips() {
         chips.removeAllViews();
         for (int i = 0; i < TABS.length; i++) {
             final int idx = i;
             TextView c = tv(TABS[i], 13, i == tab ? Color.WHITE : TXT, true);
             c.setGravity(Gravity.CENTER);
-            c.setPadding(dp(14), dp(8), dp(14), dp(8));
+            c.setPadding(dp(16), dp(7), dp(16), dp(7));
             c.setBackground(rect(i == tab ? PRIMARY : CARD, 20, i == tab ? PRIMARY : LINE));
-            c.setOnClickListener(v -> { tab = idx; openFolder = null; query = ""; drawChips(); reload(); });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+            c.setOnClickListener(v -> { tab = idx; openFolder = null; query = ""; binMode = false; endSelect(); drawChips(); drawHead(); reload(); });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.rightMargin = dp(6);
             chips.addView(c, lp);
         }
     }
 
+    private void sortMenu() {
+        final String[] items = {"Date", "Name", "Size", asc ? "Order: oldest / A–Z / smallest first" : "Order: newest / Z–A / largest first"};
+        new AlertDialog.Builder(this).setTitle("Sort by").setSingleChoiceItems(new String[]{"Date", "Name", "Size"}, sortKey, (d, w) -> {
+            sortKey = w;
+            Prefs.putInt(this, "dsort", w);
+            d.dismiss();
+            render();
+        }).setPositiveButton(asc ? "Ascending ✓" : "Descending ✓", (d, w) -> { asc = !asc; Prefs.putBool(this, "dasc", asc); render(); }).show();
+    }
+
+    // ---------------------------------------------------------------- data
+
     private void reload() {
         if (content == null) return;
         final int g = ++gen;
+        if (binMode) { loadBin(g); return; }
         if (tab == FOLDERS) { render(); return; }
         if (!hasMedia()) { render(); return; }
         final int t = tab;
+        final String dlPath = Environment.DIRECTORY_DOWNLOADS + "/" + Prefs.folder(this) + "/";
         new Thread(() -> {
             List<M> list = new ArrayList<>();
-            Uri base = t == VIDEO ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : t == IMAGE ? MediaStore.Images.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-            String[] cols = t == IMAGE
-                    ? new String[]{"_id", "_display_name", "mime_type", "_size", "date_modified", "relative_path"}
-                    : new String[]{"_id", "_display_name", "mime_type", "_size", "date_modified", "relative_path", "duration"};
-            try (Cursor c = getContentResolver().query(base, cols, null, null, "date_modified DESC")) {
+            Uri base;
+            String sel = null;
+            String[] args = null;
+            if (t == DOWNLOADS) {
+                base = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                sel = "relative_path LIKE ? AND is_pending=0";
+                args = new String[]{dlPath + "%"};
+            } else base = t == VIDEO ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : t == IMAGE ? MediaStore.Images.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+            boolean hasDur = t == VIDEO || t == AUDIO;
+            String[] cols = hasDur
+                    ? new String[]{"_id", "_display_name", "mime_type", "_size", "date_modified", "relative_path", "_data", "duration"}
+                    : new String[]{"_id", "_display_name", "mime_type", "_size", "date_modified", "relative_path", "_data"};
+            try (Cursor c = getContentResolver().query(base, cols, sel, args, "date_modified DESC")) {
                 while (c != null && c.moveToNext()) {
                     M m = new M();
                     m.name = c.getString(1) == null ? "" : c.getString(1);
@@ -208,9 +292,10 @@ public class DeviceFilesActivity extends Activity {
                     m.date = c.getLong(4) * 1000L;
                     String rp = c.getString(5);
                     m.folder = rp == null || rp.isEmpty() ? "Other" : rp.replaceAll("/+$", "");
-                    if (t != IMAGE) m.dur = c.getLong(6);
+                    m.path = c.getString(6) == null ? "" : c.getString(6);
+                    if (hasDur) m.dur = c.getLong(7);
                     m.uri = ContentUris.withAppendedId(base, c.getLong(0));
-                    m.kind = t;
+                    m.kind = t == VIDEO ? K_VIDEO : t == IMAGE ? K_IMAGE : t == AUDIO ? K_AUDIO : kindFor(m.name, m.mime);
                     list.add(m);
                 }
             } catch (Exception ignored) { }
@@ -218,13 +303,76 @@ public class DeviceFilesActivity extends Activity {
         }).start();
     }
 
+    private void loadBin(final int g) {
+        new Thread(() -> {
+            List<M> list = new ArrayList<>();
+            if (allFiles()) {
+                for (Bin.Entry e : Bin.list()) {
+                    M m = new M();
+                    m.name = e.name;
+                    m.file = e.file;
+                    m.size = e.size;
+                    m.date = e.time;
+                    m.expires = e.time + Bin.KEEP_MS;
+                    m.kind = e.dir ? K_DIR : kindFor(e.name, mimeOf(e.name));
+                    m.mime = mimeOf(e.name);
+                    m.bin = e;
+                    list.add(m);
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                Uri[] tables = {MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI};
+                int[] kinds = {K_VIDEO, K_IMAGE, K_AUDIO};
+                for (int i = 0; i < tables.length; i++) {
+                    Bundle q = new Bundle();
+                    q.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY);
+                    try (Cursor c = getContentResolver().query(tables[i], new String[]{"_id", "_display_name", "mime_type", "_size", "date_modified", "date_expires"}, q, null)) {
+                        while (c != null && c.moveToNext()) {
+                            M m = new M();
+                            m.name = c.getString(1) == null ? "" : c.getString(1);
+                            m.mime = c.getString(2) == null ? "" : c.getString(2);
+                            m.size = c.getLong(3);
+                            m.date = c.getLong(4) * 1000L;
+                            m.expires = c.getLong(5) * 1000L;
+                            m.uri = ContentUris.withAppendedId(tables[i], c.getLong(0));
+                            m.kind = kinds[i];
+                            m.sysTrash = true;
+                            list.add(m);
+                        }
+                    } catch (Exception ignored) { }
+                }
+            }
+            runOnUiThread(() -> { if (g != gen) return; media.clear(); media.addAll(list); render(); });
+        }).start();
+    }
+
+    private List<M> sorted(List<M> in) {
+        List<M> l = new ArrayList<>(in);
+        final int dirSign = asc ? 1 : -1;
+        Collections.sort(l, new Comparator<M>() {
+            @Override public int compare(M a, M b) {
+                if (a.kind == K_DIR && b.kind != K_DIR) return -1;
+                if (a.kind != K_DIR && b.kind == K_DIR) return 1;
+                int r;
+                if (sortKey == 1) r = a.name.compareToIgnoreCase(b.name);
+                else if (sortKey == 2) r = Long.compare(a.size, b.size);
+                else r = Long.compare(a.date, b.date);
+                return r * dirSign;
+            }
+        });
+        return l;
+    }
+
+    // ---------------------------------------------------------------- render
+
     private void render() {
         content.removeAllViews();
-        title.setText(tab == FOLDERS ? "Folders" : openFolder == null ? TABS[tab] : openFolder.equals("*") ? "All " + TABS[tab].toLowerCase(Locale.US) : lastPart(openFolder));
+        if (!selMode) title.setText(binMode ? "Recycle bin" : tab == FOLDERS ? "Folders" : openFolder == null || tab == DOWNLOADS ? TABS[tab] : openFolder.equals("*") ? "All " + TABS[tab].toLowerCase(Locale.US) : lastPart(openFolder));
+        if (binMode) { binList(); return; }
         if (tab == FOLDERS) { folders(); return; }
         if (!hasMedia()) { permissionCard("Allow access to your videos, pictures and audio so they can be listed here.", "Allow access", v -> askMedia()); return; }
-        if (media.isEmpty()) { empty("Nothing found here yet."); return; }
-        if (openFolder == null && query.isEmpty()) overview(); else list();
+        if (media.isEmpty()) { empty(tab == DOWNLOADS ? "Nothing downloaded yet.\nFinished downloads appear here." : "Nothing found here yet."); return; }
+        if (tab != DOWNLOADS && openFolder == null && query.isEmpty()) overview(); else list();
     }
 
     private void overview() {
@@ -241,7 +389,7 @@ public class DeviceFilesActivity extends Activity {
 
     private void addFolderRow(String name, String subText, final M first, final String key) {
         LinearLayout r = row();
-        r.addView(thumb(first, true), new LinearLayout.LayoutParams(dp(54), dp(54)));
+        r.addView(thumb(first, dp(54)), new LinearLayout.LayoutParams(dp(54), dp(54)));
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
         tx.setPadding(dp(12), 0, dp(6), 0);
@@ -256,39 +404,62 @@ public class DeviceFilesActivity extends Activity {
         content.addView(r, rowLp());
     }
 
-    private void list() {
-        final List<M> shown = new ArrayList<>();
+    private List<M> shownList() {
+        List<M> shown = new ArrayList<>();
         for (M m : media) {
-            if (openFolder != null && !openFolder.equals("*") && !openFolder.equals(m.folder)) continue;
+            if (openFolder != null && !openFolder.equals("*") && tab != DOWNLOADS && !openFolder.equals(m.folder)) continue;
             if (!query.isEmpty() && !m.name.toLowerCase(Locale.US).contains(query)) continue;
             shown.add(m);
         }
+        return sorted(shown);
+    }
+
+    private void list() {
+        final List<M> shown = shownList();
         long total = 0;
         for (M m : shown) total += m.size;
-        sub.setText(shown.size() + " items · " + MainActivity.sizeText(total));
+        sub.setText(shown.size() + " items · " + MainActivity.sizeText(total) + " · " + SORTS[sortKey] + (asc ? " ↑" : " ↓"));
         if (shown.isEmpty()) { empty("No matches."); return; }
+        fill(shown, shown);
+    }
+
+    /** Draws the items as rows or as a 3-column grid. */
+    private void fill(List<M> items, List<M> playlist) {
+        if (!grid) {
+            int n = 0;
+            for (M m : items) {
+                if (n++ > 700) break;
+                content.addView(fileRow(m, playlist), rowLp());
+            }
+            return;
+        }
+        int cols = 3, gap = dp(6);
+        int cell = (getResources().getDisplayMetrics().widthPixels - dp(24) - gap * (cols - 1)) / cols;
+        LinearLayout r = null;
         int n = 0;
-        for (final M m : shown) {
-            if (n++ > 600) break;
-            content.addView(fileRow(m, shown), rowLp());
+        for (M m : items) {
+            if (n >= 600) break;
+            if (n % cols == 0) {
+                r = new LinearLayout(this);
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+                rp.bottomMargin = gap;
+                content.addView(r, rp);
+            }
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(cell, cell);
+            if (n % cols != cols - 1) cp.rightMargin = gap;
+            r.addView(gridCell(m, playlist, cell), cp);
+            n++;
         }
     }
 
-    // ---- folders tab (needs all-files access) ----
+    // ---------------------------------------------------------------- folders tab
 
     private void folders() {
-        if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
-            permissionCard("To browse every folder of your phone, including hidden files and folders, Android needs \"All files access\" for this app.", "Allow all files access", v -> {
-                try {
-                    startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName())));
-                } catch (Exception e) {
-                    startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-                }
-            });
+        if (!allFiles() && Build.VERSION.SDK_INT >= 30) {
+            permissionCard("To browse every folder of your phone, including hidden files and folders, Android needs \"All files access\" for this app.", "Allow all files access", v -> askAllFiles());
             return;
         }
         if (!hasMedia()) { permissionCard("Allow storage access to browse folders.", "Allow access", v -> askMedia()); return; }
-        // toolbar: path + hidden switch
         LinearLayout tb = new LinearLayout(this);
         tb.setGravity(Gravity.CENTER_VERTICAL);
         TextView pth = tv(dir == null ? "Storage" : dir.getAbsolutePath(), 12, SUB, true);
@@ -307,8 +478,7 @@ public class DeviceFilesActivity extends Activity {
 
         if (dir == null) {
             File[] roots = new File("/storage").listFiles();
-            File internal = Environment.getExternalStorageDirectory();
-            addDirRow(internal, "Internal storage");
+            addDirRow(Environment.getExternalStorageDirectory(), "Internal storage");
             if (roots != null) for (File r : roots) {
                 String n = r.getName();
                 if (n.equals("emulated") || n.equals("self") || !r.isDirectory() || !r.canRead()) continue;
@@ -325,38 +495,35 @@ public class DeviceFilesActivity extends Activity {
             M m = new M();
             m.name = f.getName();
             m.file = f;
+            m.path = f.getAbsolutePath();
             m.size = f.length();
             m.date = f.lastModified();
-            m.kind = f.isDirectory() ? K_DIR : kindOf(f.getName());
             m.mime = mimeOf(f.getName());
+            m.kind = f.isDirectory() ? K_DIR : kindFor(f.getName(), m.mime);
             items.add(m);
         }
-        Collections.sort(items, (a, b2) -> a.kind == K_DIR && b2.kind != K_DIR ? -1 : a.kind != K_DIR && b2.kind == K_DIR ? 1 : a.name.compareToIgnoreCase(b2.name));
+        items = sorted(items);
         if (items.isEmpty()) { empty("This folder is empty."); return; }
-        final List<M> playable = new ArrayList<>();
-        for (M m : items) if (m.kind == VIDEO || m.kind == AUDIO) playable.add(m);
-        int n = 0;
-        for (final M m : items) {
-            if (n++ > 800) break;
-            if (m.kind == K_DIR) {
-                File[] ch = m.file.listFiles();
-                int cnt = ch == null ? 0 : ch.length;
-                LinearLayout r = row();
-                r.addView(icoBox(Ico.FOLDER, 0xFFF59E0B), new LinearLayout.LayoutParams(dp(54), dp(54)));
-                LinearLayout tx = new LinearLayout(this);
-                tx.setOrientation(LinearLayout.VERTICAL);
-                tx.setPadding(dp(12), 0, dp(6), 0);
-                tx.addView(tv(m.name, 15, TXT, true));
-                tx.addView(tv(cnt + " items", 11, SUB, false));
-                r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-                r.addView(chev(), new LinearLayout.LayoutParams(dp(18), dp(24)));
-                r.setOnClickListener(v -> { dir = m.file; query = ""; render(); });
-                r.setOnLongClickListener(v -> { actions(m, playable); return true; });
-                content.addView(r, rowLp());
-            } else {
-                content.addView(fileRow(m, playable), rowLp());
-            }
-        }
+        List<M> dirs = new ArrayList<>(), files = new ArrayList<>();
+        for (M m : items) (m.kind == K_DIR ? dirs : files).add(m);
+        for (M m : dirs) content.addView(dirRow(m, items), rowLp());
+        fill(files, items);
+    }
+
+    private View dirRow(final M m, final List<M> playlist) {
+        File[] ch = m.file.listFiles();
+        LinearLayout r = row();
+        r.addView(icoBox(Ico.FOLDER, 0xFFF59E0B), new LinearLayout.LayoutParams(dp(54), dp(54)));
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.setPadding(dp(12), 0, dp(6), 0);
+        tx.addView(tv(m.name, 15, TXT, true));
+        tx.addView(tv((ch == null ? 0 : ch.length) + " items", 11, SUB, false));
+        r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
+        r.addView(chev(), new LinearLayout.LayoutParams(dp(18), dp(24)));
+        r.setOnClickListener(v -> { if (selMode) toggle(m); else { dir = m.file; query = ""; render(); } });
+        r.setOnLongClickListener(v -> { startSelect(m); return true; });
+        return r;
     }
 
     private void addDirRow(final File f, String label) {
@@ -373,11 +540,165 @@ public class DeviceFilesActivity extends Activity {
         content.addView(r, rowLp());
     }
 
-    // ---- rows ----
+    // ---------------------------------------------------------------- recycle bin
+
+    private void binList() {
+        if (media.isEmpty()) { sub.setText("Deleted files stay here for 30 days"); empty("The recycle bin is empty."); return; }
+        sub.setText(media.size() + " items · kept for 30 days");
+        if (!allFiles()) {
+            TextView n = tv("Items deleted without \"All files access\" are kept by Android itself.", 11, SUB, false);
+            n.setPadding(dp(4), 0, 0, dp(6));
+            content.addView(n);
+        }
+        List<M> l = sorted(media);
+        fill(l, l);
+    }
+
+    private void binRestore(final List<M> items) {
+        if (items.isEmpty()) return;
+        List<Uri> sys = new ArrayList<>();
+        int ok = 0;
+        for (M m : items) {
+            if (m.bin != null) { if (Bin.restore(this, m.bin)) ok++; }
+            else if (m.sysTrash && m.uri != null) sys.add(m.uri);
+        }
+        if (!sys.isEmpty() && Build.VERSION.SDK_INT >= 30) {
+            try { startIntentSenderForResult(MediaStore.createTrashRequest(getContentResolver(), sys, false).getIntentSender(), 92, null, 0, 0, 0); } catch (Exception e) { toast("Could not restore"); }
+        }
+        if (ok > 0) toast(ok + " restored");
+        endSelect();
+        reload();
+    }
+
+    private void binPurge(final List<M> items) {
+        if (items.isEmpty()) return;
+        new AlertDialog.Builder(this).setTitle("Delete " + items.size() + " item" + (items.size() > 1 ? "s" : "") + " forever?").setMessage("This cannot be undone.")
+                .setPositiveButton("Delete forever", (d, w) -> {
+                    List<Uri> sys = new ArrayList<>();
+                    for (M m : items) {
+                        if (m.bin != null) Bin.purge(m.bin);
+                        else if (m.sysTrash && m.uri != null) sys.add(m.uri);
+                    }
+                    if (!sys.isEmpty() && Build.VERSION.SDK_INT >= 30) {
+                        try { startIntentSenderForResult(MediaStore.createDeleteRequest(getContentResolver(), sys).getIntentSender(), 93, null, 0, 0, 0); } catch (Exception e) { toast("Could not delete"); }
+                    }
+                    endSelect();
+                    reload();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void emptyBin() {
+        if (media.isEmpty()) { toast("The recycle bin is already empty"); return; }
+        binPurge(new ArrayList<>(media));
+    }
+
+    // ---------------------------------------------------------------- selection, delete, share
+
+    private void startSelect(M m) {
+        selMode = true;
+        selected.put(m.key(), m);
+        drawHead();
+        render();
+    }
+
+    private void endSelect() {
+        selMode = false;
+        selected.clear();
+        drawHead();
+        if (content != null) render();
+    }
+
+    private void toggle(M m) {
+        String k = m.key();
+        if (selected.containsKey(k)) selected.remove(k); else selected.put(k, m);
+        if (selected.isEmpty()) { endSelect(); return; }
+        title.setText(selected.size() + " selected");
+        render();
+    }
+
+    private void selectAll() {
+        List<M> src;
+        if (binMode) src = media;
+        else if (tab == FOLDERS) {
+            src = new ArrayList<>();
+            File[] fs = dir == null ? null : dir.listFiles();
+            if (fs != null) for (File f : fs) {
+                if (!hidden && f.getName().startsWith(".")) continue;
+                M m = new M();
+                m.name = f.getName(); m.file = f; m.path = f.getAbsolutePath(); m.size = f.length(); m.date = f.lastModified();
+                m.mime = mimeOf(f.getName()); m.kind = f.isDirectory() ? K_DIR : kindFor(f.getName(), m.mime);
+                src.add(m);
+            }
+        } else src = shownList();
+        boolean all = selected.size() >= src.size();
+        selected.clear();
+        if (!all) for (M m : src) selected.put(m.key(), m);
+        if (selected.isEmpty()) { endSelect(); return; }
+        title.setText(selected.size() + " selected");
+        render();
+    }
+
+    private void shareMany(List<M> items) {
+        ArrayList<Uri> us = new ArrayList<>();
+        for (M m : items) { Uri u = contentUri(m); if (u != null && m.kind != K_DIR) us.add(u); }
+        if (us.isEmpty()) { toast("Nothing here can be shared"); return; }
+        Intent i = new Intent(us.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE).setType("*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (us.size() == 1) i.putExtra(Intent.EXTRA_STREAM, us.get(0)); else i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, us);
+        startActivity(Intent.createChooser(i, "Share"));
+    }
+
+    private void deleteMany(final List<M> items) {
+        if (items.isEmpty()) return;
+        String what = items.size() == 1 ? items.get(0).name : items.size() + " items";
+        new AlertDialog.Builder(this).setTitle("Move " + what + " to the recycle bin?").setMessage("You can restore " + (items.size() == 1 ? "it" : "them") + " within 30 days.")
+                .setPositiveButton("Move", (d, w) -> {
+                    int ok = 0;
+                    List<Uri> sys = new ArrayList<>();
+                    for (M m : items) {
+                        File f = m.file != null ? m.file : (!m.path.isEmpty() ? new File(m.path) : null);
+                        if (allFiles() && f != null && f.exists()) { if (Bin.trash(this, f)) ok++; continue; }
+                        if (m.uri != null) sys.add(m.uri);
+                    }
+                    if (!sys.isEmpty()) {
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            try { startIntentSenderForResult(MediaStore.createTrashRequest(getContentResolver(), sys, true).getIntentSender(), 94, null, 0, 0, 0); } catch (Exception e) { toast("Could not delete"); }
+                        } else {
+                            for (Uri u : sys) { try { getContentResolver().delete(u, null, null); ok++; } catch (Exception ignored) { } }
+                        }
+                    }
+                    if (ok > 0) toast(ok + " moved to the recycle bin");
+                    endSelect();
+                    reload();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent d) {
+        super.onActivityResult(req, res, d);
+        if (req >= 91 && req <= 94) { endSelect(); reload(); }
+    }
+
+    // ---------------------------------------------------------------- rows
+
+    private View selBadge(boolean on) {
+        FrameLayout f = new FrameLayout(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(on ? PRIMARY : 0x66000000);
+        g.setStroke(dp(2), Color.WHITE);
+        f.setBackground(g);
+        if (on) f.addView(new Ico(this, Ico.CHECK), new FrameLayout.LayoutParams(-1, -1));
+        return f;
+    }
 
     private View fileRow(final M m, final List<M> playlist) {
+        boolean on = selected.containsKey(m.key());
         LinearLayout r = row();
-        r.addView(thumb(m, false), new LinearLayout.LayoutParams(dp(54), dp(54)));
+        if (on) r.setBackground(rect(Nav.dark(this) ? 0xFF1E3A8A : 0xFFDBEAFE, 14, PRIMARY));
+        FrameLayout tf = new FrameLayout(this);
+        tf.addView(thumb(m, dp(54)), new FrameLayout.LayoutParams(-1, -1));
+        if (selMode) tf.addView(selBadge(on), new FrameLayout.LayoutParams(dp(20), dp(20), Gravity.TOP | Gravity.START));
+        r.addView(tf, new LinearLayout.LayoutParams(dp(54), dp(54)));
         LinearLayout tx = new LinearLayout(this);
         tx.setOrientation(LinearLayout.VERTICAL);
         tx.setPadding(dp(12), 0, dp(6), 0);
@@ -387,34 +708,70 @@ public class DeviceFilesActivity extends Activity {
         tx.addView(n);
         StringBuilder s = new StringBuilder(MainActivity.sizeText(m.size));
         if (m.dur > 0) s.append(" · ").append(clock(m.dur / 1000));
-        if (m.date > 0) s.append(" · ").append(DateFormat.getDateInstance(DateFormat.MEDIUM).format(new Date(m.date)));
+        if (binMode && m.expires > 0) s.append(" · ").append(Math.max(0, (m.expires - System.currentTimeMillis()) / 86400000L)).append(" days left");
+        else if (m.date > 0) s.append(" · ").append(DateFormat.getDateInstance(DateFormat.MEDIUM).format(new Date(m.date)));
         tx.addView(tv(s.toString(), 11, SUB, false));
         r.addView(tx, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView more = tv("⋮", 22, SUB, true);
-        more.setGravity(Gravity.CENTER);
-        more.setOnClickListener(v -> actions(m, playlist));
-        r.addView(more, new LinearLayout.LayoutParams(dp(36), dp(44)));
-        r.setOnClickListener(v -> open(m, playlist));
-        r.setOnLongClickListener(v -> { actions(m, playlist); return true; });
+        if (!selMode) {
+            Ico more = new Ico(this, Ico.MORE);
+            more.color(SUB);
+            more.setOnClickListener(v -> actions(m, playlist));
+            r.addView(more, new LinearLayout.LayoutParams(dp(34), dp(44)));
+        }
+        r.setOnClickListener(v -> tap(m, playlist));
+        r.setOnLongClickListener(v -> { if (!selMode) startSelect(m); return true; });
         return r;
     }
 
-    private View thumb(final M m, boolean folderStyle) {
+    private View gridCell(final M m, final List<M> playlist, int size) {
+        boolean on = selected.containsKey(m.key());
+        FrameLayout f = new FrameLayout(this);
+        f.addView(thumb(m, size), new FrameLayout.LayoutParams(-1, -1));
+        if (m.kind != K_IMAGE) {
+            TextView n = tv(m.name, 10, Color.WHITE, true);
+            n.setSingleLine(true);
+            n.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            n.setPadding(dp(6), dp(14), dp(6), dp(4));
+            n.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0xCC000000, 0x00000000}));
+            f.addView(n, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        }
+        if (m.dur > 0) {
+            TextView d = tv(clock(m.dur / 1000), 10, Color.WHITE, true);
+            d.setPadding(dp(5), dp(1), dp(5), dp(1));
+            d.setBackground(rect(0x99000000, 8, 0));
+            FrameLayout.LayoutParams dp1 = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+            dp1.setMargins(0, dp(4), dp(4), 0);
+            f.addView(d, dp1);
+        }
+        if (selMode) {
+            FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP | Gravity.START);
+            bp.setMargins(dp(5), dp(5), 0, 0);
+            f.addView(selBadge(on), bp);
+            if (on) f.setForeground(new android.graphics.drawable.ColorDrawable(0x552563EB));
+        }
+        f.setOnClickListener(v -> tap(m, playlist));
+        f.setOnLongClickListener(v -> { if (!selMode) startSelect(m); return true; });
+        return f;
+    }
+
+    private View thumb(final M m, int px) {
+        if (m.kind == K_AUDIO || m.kind == K_OTHER) {
+            return icoBox(m.kind == K_AUDIO ? Ico.TRACKS : Ico.INFO, m.kind == K_AUDIO ? 0xFFA855F7 : 0xFF64748B);
+        }
+        if (m.kind == K_DIR) return icoBox(Ico.FOLDER, 0xFFF59E0B);
         final ImageView iv = new ImageView(this);
         iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        iv.setBackground(rect(FIELD, 10, LINE));
+        iv.setBackground(rect(FIELD, 10, 0));
         iv.setClipToOutline(true);
-        if (m.kind == AUDIO || (m.kind == K_OTHER)) {
-            return icoBox(m.kind == AUDIO ? Ico.TRACKS : Ico.INFO, m.kind == AUDIO ? 0xFFA855F7 : 0xFF64748B);
-        }
-        final String key = String.valueOf(m.uri != null ? m.uri : m.file);
+        final String key = m.key() + "@" + px;
         Bitmap c = cache.get(key);
         if (c != null) { iv.setImageBitmap(c); return iv; }
+        final int side = Math.max(160, px);
         pool.execute(() -> {
             Bitmap bm = null;
             try {
-                Size sz = new Size(160, 160);
-                if (m.file != null) bm = m.kind == VIDEO ? ThumbnailUtils.createVideoThumbnail(m.file, sz, null) : ThumbnailUtils.createImageThumbnail(m.file, sz, null);
+                Size sz = new Size(side, side);
+                if (m.file != null) bm = m.kind == K_VIDEO ? ThumbnailUtils.createVideoThumbnail(m.file, sz, null) : ThumbnailUtils.createImageThumbnail(m.file, sz, null);
                 else bm = getContentResolver().loadThumbnail(m.uri, sz, null);
             } catch (Exception ignored) { }
             if (bm != null) {
@@ -479,24 +836,33 @@ public class DeviceFilesActivity extends Activity {
         content.addView(c, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    // ---- actions ----
+    // ---------------------------------------------------------------- open / actions
+
+    private void tap(M m, List<M> playlist) {
+        if (selMode) { toggle(m); return; }
+        if (binMode) { actions(m, playlist); return; }
+        open(m, playlist);
+    }
+
+    private static boolean visual(M m) { return m.kind == K_VIDEO || m.kind == K_IMAGE; }
 
     private void open(M m, List<M> playlist) {
         if (m.kind == K_DIR) { dir = m.file; render(); return; }
         Uri u = m.uri != null ? m.uri : Uri.fromFile(m.file);
-        String mime = m.mime.isEmpty() ? (m.kind == VIDEO ? "video/*" : m.kind == AUDIO ? "audio/*" : m.kind == IMAGE ? "image/*" : "") : m.mime;
-        if (m.kind == VIDEO || m.kind == AUDIO || m.kind == IMAGE || mime.startsWith("text/")) {
+        String mime = m.mime.isEmpty() ? (m.kind == K_VIDEO ? "video/*" : m.kind == K_AUDIO ? "audio/*" : m.kind == K_IMAGE ? "image/*" : "") : m.mime;
+        if (m.kind == K_VIDEO || m.kind == K_AUDIO || m.kind == K_IMAGE || mime.startsWith("text/")) {
             Intent i = new Intent(this, PreviewActivity.class).putExtra("uri", u.toString()).putExtra("mime", mime).putExtra("title", m.name);
-            if (m.kind == VIDEO || m.kind == AUDIO) {
+            if (m.kind != K_OTHER) {
                 ArrayList<String> us = new ArrayList<>(), ns = new ArrayList<>(), ms = new ArrayList<>();
                 int idx = 0;
                 for (M g : playlist) {
-                    if (g.kind != m.kind) continue;
+                    boolean same = m.kind == K_AUDIO ? g.kind == K_AUDIO : visual(g) && visual(m);
+                    if (!same) continue;
                     if (g == m) idx = us.size();
                     us.add((g.uri != null ? g.uri : Uri.fromFile(g.file)).toString());
                     ns.add(g.name);
-                    ms.add(g.mime.isEmpty() ? (g.kind == VIDEO ? "video/*" : "audio/*") : g.mime);
-                    if (us.size() >= 300) break;
+                    ms.add(g.mime.isEmpty() ? (g.kind == K_VIDEO ? "video/*" : g.kind == K_AUDIO ? "audio/*" : "image/*") : g.mime);
+                    if (us.size() >= 400) break;
                 }
                 if (us.size() > 1) i.putStringArrayListExtra("pl_uris", us).putStringArrayListExtra("pl_names", ns).putStringArrayListExtra("pl_mimes", ms).putExtra("pl_index", idx);
             }
@@ -508,6 +874,7 @@ public class DeviceFilesActivity extends Activity {
 
     private Uri contentUri(M m) {
         if (m.uri != null) return m.uri;
+        if (m.file == null) return null;
         try (Cursor c = getContentResolver().query(MediaStore.Files.getContentUri("external"), new String[]{"_id"}, "_data=?", new String[]{m.file.getAbsolutePath()}, null)) {
             if (c != null && c.moveToFirst()) return ContentUris.withAppendedId(MediaStore.Files.getContentUri("external"), c.getLong(0));
         } catch (Exception ignored) { }
@@ -516,58 +883,39 @@ public class DeviceFilesActivity extends Activity {
 
     private void openWith(M m) {
         Uri u = contentUri(m);
-        if (u == null) { Toast.makeText(this, "Android can't hand this file to another app from here", Toast.LENGTH_LONG).show(); return; }
+        if (u == null) { toast("Android can't hand this file to another app from here"); return; }
         try {
             startActivity(Intent.createChooser(new Intent(Intent.ACTION_VIEW).setDataAndType(u, m.mime.isEmpty() ? "*/*" : m.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Open with"));
-        } catch (Exception e) { Toast.makeText(this, "No app can open this file", Toast.LENGTH_SHORT).show(); }
+        } catch (Exception e) { toast("No app can open this file"); }
     }
 
     private void actions(final M m, final List<M> playlist) {
-        final List<String> names = new ArrayList<>(Arrays.asList(m.kind == K_DIR ? new String[]{"Open", "Details", "Delete folder"} : new String[]{"Open", "Open with…", "Share", "Details", "Delete"}));
+        final List<String> names = new ArrayList<>();
+        if (binMode) { names.add("Restore"); names.add("Delete forever"); names.add("Details"); }
+        else if (m.kind == K_DIR) { names.add("Open"); names.add("Select"); names.add("Details"); names.add("Move to recycle bin"); }
+        else { names.add("Open"); names.add("Open with…"); names.add("Share"); names.add("Select"); names.add("Details"); names.add("Move to recycle bin"); }
         new AlertDialog.Builder(this).setTitle(m.name).setItems(names.toArray(new String[0]), (d, w) -> {
             String a = names.get(w);
+            List<M> one = new ArrayList<>();
+            one.add(m);
             if (a.equals("Open")) open(m, playlist);
             else if (a.startsWith("Open with")) openWith(m);
-            else if (a.equals("Share")) {
-                Uri u = contentUri(m);
-                if (u == null) { Toast.makeText(this, "Can't share this file", Toast.LENGTH_SHORT).show(); return; }
-                startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType(m.mime.isEmpty() ? "*/*" : m.mime).putExtra(Intent.EXTRA_STREAM, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share"));
-            } else if (a.equals("Details")) {
-                String path = m.file != null ? m.file.getAbsolutePath() : m.folder;
+            else if (a.equals("Share")) shareMany(one);
+            else if (a.equals("Select")) startSelect(m);
+            else if (a.equals("Restore")) binRestore(one);
+            else if (a.equals("Delete forever")) binPurge(one);
+            else if (a.equals("Details")) {
+                String path = !m.path.isEmpty() ? m.path : m.file != null ? m.file.getAbsolutePath() : m.folder;
                 new AlertDialog.Builder(this).setTitle("Details").setMessage("Name: " + m.name + "\nWhere: " + path + "\nSize: " + MainActivity.sizeText(m.size)
                         + (m.mime.isEmpty() ? "" : "\nType: " + m.mime) + (m.date > 0 ? "\nModified: " + new Date(m.date) : "")).setPositiveButton("OK", null).show();
-            } else delete(m);
+            } else deleteMany(one);
         }).show();
-    }
-
-    private void delete(final M m) {
-        if (m.file != null) {
-            new AlertDialog.Builder(this).setTitle("Delete " + m.name + "?").setMessage("This cannot be undone.")
-                    .setPositiveButton("Delete", (d, w) -> { deleteTree(m.file); render(); })
-                    .setNegativeButton("Cancel", null).show();
-        } else if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                startIntentSenderForResult(MediaStore.createDeleteRequest(getContentResolver(), Collections.singletonList(m.uri)).getIntentSender(), 91, null, 0, 0, 0);
-            } catch (Exception e) { Toast.makeText(this, "Could not delete", Toast.LENGTH_SHORT).show(); }
-        } else {
-            try { getContentResolver().delete(m.uri, null, null); reload(); } catch (Exception e) { Toast.makeText(this, "Could not delete", Toast.LENGTH_SHORT).show(); }
-        }
-    }
-
-    private void deleteTree(File f) {
-        File[] ch = f.listFiles();
-        if (ch != null) for (File c : ch) deleteTree(c);
-        f.delete();
-    }
-
-    @Override
-    protected void onActivityResult(int req, int res, Intent d) {
-        super.onActivityResult(req, res, d);
-        if (req == 91) reload();
     }
 
     @Override
     public void onBackPressed() {
+        if (selMode) { endSelect(); return; }
+        if (binMode) { binMode = false; drawHead(); reload(); return; }
         if (tab == FOLDERS) {
             if (dir != null) {
                 File p = dir.getParentFile();
@@ -576,7 +924,7 @@ public class DeviceFilesActivity extends Activity {
                 render();
                 return;
             }
-        } else if (openFolder != null) {
+        } else if (openFolder != null && tab != DOWNLOADS) {
             openFolder = null;
             render();
             return;
@@ -584,7 +932,9 @@ public class DeviceFilesActivity extends Activity {
         Nav.go(this, Nav.FILES, Nav.HOME);
     }
 
-    // ---- helpers ----
+    // ---------------------------------------------------------------- helpers
+
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
 
     private static String lastPart(String p) {
         String s = p.replaceAll("/+$", "");
@@ -599,11 +949,11 @@ public class DeviceFilesActivity extends Activity {
         return m == null ? "" : m;
     }
 
-    private static int kindOf(String name) {
+    private static int kindFor(String name, String mime) {
         String n = name.toLowerCase(Locale.US);
-        if (n.matches(".*\\.(mp4|mkv|webm|mov|avi|3gp|m4v|ts|flv|wmv|mpg|mpeg)$")) return VIDEO;
-        if (n.matches(".*\\.(mp3|m4a|aac|ogg|opus|wav|flac|amr|wma)$")) return AUDIO;
-        if (n.matches(".*\\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$")) return IMAGE;
+        if (mime.startsWith("video/") || n.matches(".*\\.(mp4|mkv|webm|mov|avi|3gp|m4v|ts|flv|wmv|mpg|mpeg)$")) return K_VIDEO;
+        if (mime.startsWith("audio/") || n.matches(".*\\.(mp3|m4a|aac|ogg|opus|wav|flac|amr|wma)$")) return K_AUDIO;
+        if (mime.startsWith("image/") || n.matches(".*\\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$")) return K_IMAGE;
         return K_OTHER;
     }
 

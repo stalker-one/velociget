@@ -10,7 +10,7 @@ import android.widget.TextView;
 /** Clean line icons for the player (drawn, not emoji, so they look the same on every phone). */
 class Ico extends TextView {
     static final int PLAY = 1, PAUSE = 2, BACK10 = 3, FWD10 = 4, VOL = 5, MUTE = 6, LOCK = 7, UNLOCK = 8, FULL = 9, CC = 10, LIST = 11, PREV = 12, NEXT = 13, PIP = 14, TRACKS = 15,
-            DOWNLOAD = 16, FOLDER = 17, GLOBE = 18, YT = 19, COG = 20, BACK = 21, MORE = 22, CHECK = 23, REFRESH = 24, CLOSE = 25, SEARCH = 26, SHARE = 27, TRASH = 28, INFO = 29, SPEED = 30, MOVIE = 31, PICTURE = 32, UPDATE = 33;
+            DOWNLOAD = 16, FOLDER = 17, GLOBE = 18, YT = 19, COG = 20, BACK = 21, MORE = 22, CHECK = 23, REFRESH = 24, CLOSE = 25, SEARCH = 26, SHARE = 27, TRASH = 28, INFO = 29, SPEED = 30, MOVIE = 31, PICTURE = 32, UPDATE = 33, SORT = 34, GRID = 35, SLIDE = 36, RESTORE = 37, SELECT = 38;
     private int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -21,6 +21,10 @@ class Ico extends TextView {
         p.setColor(0xFFFFFFFF);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setStrokeJoin(Paint.Join.ROUND);
+    }
+
+    private float dpx(float v) {
+        return v * getResources().getDisplayMetrics().density;
     }
 
     Ico color(int c) {
@@ -35,7 +39,7 @@ class Ico extends TextView {
 
     @Override
     protected void onDraw(Canvas c) {
-        float w = getWidth(), h = getHeight(), s = Math.min(w, h) * 0.46f, cx = w / 2, cy = h / 2;
+        float w = getWidth(), h = getHeight(), s = Math.min(Math.min(w, h), dpx(24)) * 0.46f, cx = w / 2, cy = h / 2;
         p.setStrokeWidth(Math.max(2f, s * 0.14f));
         p.setStyle(Paint.Style.STROKE);
         switch (kind) {
@@ -244,6 +248,32 @@ class Ico extends TextView {
                 c.drawPath(path, p);
                 p.setStyle(Paint.Style.FILL);
                 c.drawCircle(cx + s * .45f, cy - s * .3f, s * .12f, p);
+                break;
+            case SORT:
+                c.drawLine(cx - s * .8f, cy - s * .55f, cx + s * .8f, cy - s * .55f, p);
+                c.drawLine(cx - s * .8f, cy, cx + s * .5f, cy, p);
+                c.drawLine(cx - s * .8f, cy + s * .55f, cx + s * .2f, cy + s * .55f, p);
+                break;
+            case GRID:
+                for (int gx = -1; gx <= 1; gx += 2) for (int gy = -1; gy <= 1; gy += 2)
+                    c.drawRoundRect(new RectF(cx + gx * s * .45f - s * .35f, cy + gy * s * .45f - s * .35f, cx + gx * s * .45f + s * .35f, cy + gy * s * .45f + s * .35f), s * .1f, s * .1f, p);
+                break;
+            case SLIDE:
+                c.drawRoundRect(new RectF(cx - s * .9f, cy - s * .7f, cx + s * .9f, cy + s * .7f), s * .2f, s * .2f, p);
+                c.drawLine(cx - s * .15f, cy - s * .3f, cx + s * .3f, cy, p);
+                c.drawLine(cx + s * .3f, cy, cx - s * .15f, cy + s * .3f, p);
+                break;
+            case RESTORE:
+                c.drawArc(new RectF(cx - s * .8f, cy - s * .6f, cx + s * .8f, cy + s * 1.0f), 200, 280, false, p);
+                path.reset();
+                path.moveTo(cx - s * .95f, cy - s * .75f); path.lineTo(cx - s * .75f, cy - s * .15f); path.lineTo(cx - s * .2f, cy - s * .5f);
+                c.drawPath(path, p);
+                break;
+            case SELECT:
+                c.drawRoundRect(new RectF(cx - s * .8f, cy - s * .8f, cx + s * .8f, cy + s * .8f), s * .25f, s * .25f, p);
+                path.reset();
+                path.moveTo(cx - s * .4f, cy); path.lineTo(cx - s * .1f, cy + s * .35f); path.lineTo(cx + s * .45f, cy - s * .3f);
+                c.drawPath(path, p);
                 break;
             default:
                 break;
